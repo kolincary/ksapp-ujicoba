@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Kalindo Scan - Global Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  /* Enable vertical scrolling for pull-to-refresh */
+  -webkit-overflow-scrolling: touch;
+  /* Smooth scrolling on iOS */
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 768px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
+/* Admin Panel: scale down on laptop screens to match monitor density */
+@media (min-width: 769px) and (max-width: 1536px) {
+  /* Lock parents so no scrollbar appears */
+  html.admin-active,
+  body.admin-active,
+  #root.admin-active {
+    overflow: hidden !important;
+    width: 100vw !important;
+    height: 100vh !important;
+  }
+  /* Scale the admin container using transform (doesn't affect parent layout) */
+  .admin-scale {
+    transform: scale(0.85);
+    transform-origin: top left;
+    width: 117.647vw !important;   /* 100vw / 0.85 */
+    height: 117.647vh !important;  /* 100vh / 0.85 */
+    position: fixed !important;
+    top: 0;
+    left: 0;
+  }
+  /* Sidebar & main must fill the scaled container, not the viewport */
+  .admin-scale > aside {
+    height: 100% !important; /* Override h-screen (100vh) → fill container */
+  }
+  .admin-scale > main {
+    height: 100% !important;
+  }
+}
+
+/* Date Input Full-Area Clickable & No Selection Highlight */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+input[type="date"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input[type="date"]:not(.absolute) {
+  position: relative;
+}

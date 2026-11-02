@@ -1,0 +1,8 @@
+{
+  "name": "Kalindo Scan",
+  "description": "Intelligent Warehouse Management System interface for Pickers, Sorters, and Packers with AI-powered label scanning.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

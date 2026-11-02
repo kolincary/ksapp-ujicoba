@@ -1,0 +1,5 @@
+components/SettingsModal.tsx(633,40): error TS2322: Type '{ key: any; label: any; url: any; selected: boolean; onClick: () => any; }' is not assignable to type '{ label: string; selected: boolean; onClick: () => void; url: string; }'.
+  Property 'key' does not exist on type '{ label: string; selected: boolean; onClick: () => void; url: string; }'.
+components/SettingsModal.tsx(648,40): error TS2322: Type '{ key: any; label: any; url: any; selected: boolean; onClick: () => any; }' is not assignable to type '{ label: string; selected: boolean; onClick: () => void; url: string; }'.
+  Property 'key' does not exist on type '{ label: string; selected: boolean; onClick: () => void; url: string; }'.
+

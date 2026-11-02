@@ -1,0 +1,68 @@
+const handleAdminFirestoreImport = async () => {
+      if (!adminFirestoreCollection.trim()) {
+         setAdminImportError("Nama Collection tidak boleh kosong.");
+         return;
+      }
+      if (adminExcelData.length === 0) {
+         setAdminImportError("Tidak ada data untuk diimport.");
+         return;
+      }
+
+      setIsAdminImporting(true);
+      setAdminImportError(null);
+      setAdminImportProgress({ current: 0, total: adminExcelData.length });
+
+      try {
+         const { writeBatch, doc, collection } = await import('firebase/firestore');
+         const { db } = await import('../services/firebaseClient');
+
+         const batchSize = 400; // Firestore batch limit is 500
+         let currentProcessed = 0;
+         let currentBatch = writeBatch(db);
+         let batchCount = 0;
+         const targetCollectionRef = collection(db, adminFirestoreCollection.trim());
+
+         for (let i = 0; i < adminExcelData.length; i++) {
+            const rowData = adminExcelData[i];
+            const newDocRef = doc(targetCollectionRef);
+            
+            // Convert any undefined/null to empty string just in case
+            const cleanData = { ...rowData };
+            
+            currentBatch.set(newDocRef, {
+               ...cleanData,
+               importedAt: new Date().toISOString(),
+               importedBy: currentAdmin?.username || 'ADMIN'
+            });
+            batchCount++;
+
+            if (batchCount === batchSize) {
+               await currentBatch.commit();
+               currentProcessed += batchCount;
+               setAdminImportProgress({ current: currentProcessed, total: adminExcelData.length });
+               
+               currentBatch = writeBatch(db);
+               batchCount = 0;
+               // Artificial delay to prevent overloading and keep UI smooth
+               await new Promise(resolve => setTimeout(resolve, 300));
+            }
+         }
+
+         if (batchCount > 0) {
+            await currentBatch.commit();
+            currentProcessed += batchCount;
+            setAdminImportProgress({ current: currentProcessed, total: adminExcelData.length });
+         }
+
+         alert(`Berhasil mengimpor ${currentProcessed} data ke Firestore (Collection: ${adminFirestoreCollection.trim()})!`);
+         setAdminExcelFile(null);
+         setAdminExcelData([]);
+         setAdminExcelColumns([]);
+         setAdminFirestoreCollection('');
+         
+      } catch (err: any) {
+         setAdminImportError("Terjadi kesalahan saat menyimpan ke Firestore: " + (err.message || String(err)));
+      } finally {
+         setIsAdminImporting(false);
+      }
+   };

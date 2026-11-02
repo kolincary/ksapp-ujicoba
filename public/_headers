@@ -1,0 +1,14 @@
+/*
+  X-Robots-Tag: noindex, nofollow, noimageindex, noarchive
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/version.json
+  Cache-Control: no-cache, no-store, must-revalidate

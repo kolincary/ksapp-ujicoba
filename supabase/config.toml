@@ -1,0 +1,5 @@
+# Supabase configuration for kalindo-scan project
+project_id = "nufvlqrtpzfiqghsxsze"
+
+[functions.ginee-proxy]
+verify_jwt = false

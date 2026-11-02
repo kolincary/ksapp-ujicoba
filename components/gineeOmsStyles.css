@@ -1,0 +1,675 @@
+/* ==========================================================================
+   Ginee OMS Official Ant Design Styling (Pesanan 90 Hari Terakhir)
+   Replicates Ginee's CSS, AntD components, Color Palette, and Layout 1:1
+   ========================================================================== */
+
+.ginee-oms-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgb(32, 45, 64);
+  background-color: #f7f8fa;
+  min-height: 100vh;
+}
+
+.ginee-oms-root.dark {
+  background-color: #111827;
+  color: #e5e7eb;
+}
+
+/* Page Container */
+.ginee-page-container {
+  display: flex;
+  flex-direction: column;
+  margin: 0px;
+  padding: 16px;
+  position: relative;
+  background-color: #f7f8fa;
+}
+
+.dark .ginee-page-container {
+  background-color: #111827;
+}
+
+/* ── Top Yellow Warning Alert ──────────────────────────────────────────────── */
+.gn-alert.ant-alert-warning {
+  background: rgb(253, 247, 229);
+  border: 1px solid rgb(215, 223, 234);
+  border-top: 3px solid rgb(255, 184, 59);
+  border-radius: 3px;
+  margin-bottom: 16px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: rgb(32, 45, 64);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+
+.dark .gn-alert.ant-alert-warning {
+  background: rgba(255, 184, 59, 0.1);
+  border-color: rgba(255, 184, 59, 0.3);
+  color: #fef3c7;
+}
+
+.gn-alert .ant-alert-icon {
+  margin-right: 8px;
+  color: rgb(255, 184, 59);
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.gn-alert .ant-alert-content {
+  flex: 1 1 0%;
+  min-width: 0px;
+  line-height: 1.5;
+}
+
+.gn-alert .ant-alert-content a {
+  color: rgb(96, 32, 255);
+  text-decoration: underline;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.dark .gn-alert .ant-alert-content a {
+  color: #a78bfa;
+}
+
+.gn-alert-close-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: rgb(137, 155, 181);
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.gn-alert-close-btn:hover {
+  color: rgb(32, 45, 64);
+}
+
+/* ── Form Horizontal Rows (Channel, Toko, Logistik, Lainnya, Waktu, Cari) ──── */
+.gn-form-card {
+  background: #ffffff;
+  border-radius: 4px;
+  padding: 16px 20px 8px 20px;
+  margin-bottom: 16px;
+  border: 1px solid #eef0f4;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.dark .gn-form-card {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.gn-form-row {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  min-height: 28px;
+}
+
+.gn-form-label {
+  width: 90px;
+  min-width: 80px;
+  max-width: 100px;
+  line-height: 24px;
+  color: rgb(137, 155, 181);
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.dark .gn-form-label {
+  color: #9ca3af;
+}
+
+.gn-form-control {
+  flex: 1 1 0%;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+}
+
+/* ── Ant Tag Checkable ─────────────────────────────────────────────────────── */
+.gn-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  line-height: 20px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 3px;
+  margin-right: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  color: rgb(32, 45, 64);
+  background: transparent;
+  user-select: none;
+  position: relative;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.dark .gn-tag {
+  color: #e5e7eb;
+}
+
+.gn-tag:hover {
+  background-color: rgb(237, 235, 255);
+  color: rgb(96, 32, 255);
+}
+
+.dark .gn-tag:hover {
+  background-color: rgba(96, 32, 255, 0.25);
+  color: #c4b5fd;
+}
+
+.gn-tag.checked {
+  background-color: rgb(242, 241, 255);
+  border-color: rgb(96, 32, 255);
+  color: rgb(32, 45, 64);
+  font-weight: 500;
+  position: relative;
+  overflow: hidden;
+}
+
+.dark .gn-tag.checked {
+  background-color: rgba(96, 32, 255, 0.2);
+  border-color: #8b5cf6;
+  color: #ffffff;
+}
+
+/* Bottom-right corner triangle with checkmark */
+.gn-tag.checked::after {
+  content: "";
+  position: absolute;
+  right: 0px;
+  bottom: 0px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 10px 10px;
+  border-color: transparent transparent rgb(96, 32, 255) transparent;
+}
+
+.gn-tag.checked .corner-check-icon {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
+  color: #ffffff;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.gn-tag-expand-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgb(96, 32, 255);
+  height: 22px;
+  line-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  margin-bottom: 8px;
+  user-select: none;
+}
+
+.gn-tag-expand-btn:hover {
+  text-decoration: underline;
+}
+
+/* ── Select Dropdowns (Ant Design Style) ────────────────────────────────────── */
+.gn-select {
+  height: 28px;
+  line-height: 26px;
+  border: 1px solid rgb(173, 186, 204);
+  border-radius: 3px;
+  background-color: #ffffff;
+  padding: 0 24px 0 10px;
+  font-size: 12px;
+  color: rgb(32, 45, 64);
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23899bb5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  background-size: 12px;
+}
+
+.dark .gn-select {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #f3f4f6;
+}
+
+.gn-select:hover {
+  border-color: rgb(131, 74, 255);
+}
+
+.gn-select:focus {
+  border-color: rgb(96, 32, 255);
+  box-shadow: 0 0 0 2px rgba(96, 32, 255, 0.15);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.gn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid rgb(173, 186, 204);
+  background: #ffffff;
+  color: rgb(32, 45, 64);
+  user-select: none;
+}
+
+.dark .gn-btn {
+  background: #374151;
+  border-color: #4b5563;
+  color: #f3f4f6;
+}
+
+.gn-btn:hover {
+  border-color: rgb(131, 74, 255);
+  color: rgb(96, 32, 255);
+}
+
+.gn-btn-primary {
+  background: rgb(96, 32, 255);
+  border-color: rgb(96, 32, 255);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.gn-btn-primary:hover {
+  background: rgb(131, 74, 255);
+  border-color: rgb(131, 74, 255);
+  color: #ffffff;
+}
+
+.gn-btn-primary:active {
+  background: rgb(67, 17, 217);
+  border-color: rgb(67, 17, 217);
+  color: #ffffff;
+}
+
+/* ── Tabs & Header Bar ─────────────────────────────────────────────────────── */
+.gn-tabs-header-container {
+  background: #ffffff;
+  border-top: 1px solid rgb(238, 238, 238);
+  border-bottom: 1px solid rgb(240, 240, 240);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dark .gn-tabs-header-container {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.gn-tabs-list {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  gap: 16px;
+}
+
+.gn-tab-item {
+  height: 48px;
+  line-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: rgb(69, 81, 102);
+  position: relative;
+  white-space: nowrap;
+  user-select: none;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  padding: 0 2px;
+}
+
+.dark .gn-tab-item {
+  color: #9ca3af;
+}
+
+.gn-tab-item:hover {
+  color: rgb(96, 32, 255);
+}
+
+.gn-tab-item.active {
+  color: rgb(96, 32, 255);
+  font-weight: 600;
+  border-bottom-color: rgb(96, 32, 255);
+}
+
+.dark .gn-tab-item.active {
+  color: #a78bfa;
+  border-bottom-color: #8b5cf6;
+}
+
+/* Tab Counter Badge */
+.gn-tab-badge {
+  background-color: rgb(227, 232, 240);
+  color: rgb(96, 108, 128);
+  height: 16px;
+  line-height: 16px;
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.dark .gn-tab-badge {
+  background-color: #374151;
+  color: #9ca3af;
+}
+
+.gn-tab-item.active .gn-tab-badge {
+  background-color: rgb(96, 32, 255);
+  color: #ffffff;
+}
+
+.dark .gn-tab-item.active .gn-tab-badge {
+  background-color: #7c3aed;
+  color: #ffffff;
+}
+
+/* ── Table & Orders Grid ───────────────────────────────────────────────────── */
+.gn-table-header-row {
+  background: rgb(242, 244, 247);
+  border: 1px solid rgb(240, 240, 240);
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+  font-size: 12px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  border-radius: 3px 3px 0 0;
+}
+
+.dark .gn-table-header-row {
+  background: #252e3d;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+/* ── Order Card (100% Ginee Format) ────────────────────────────────────────── */
+.gn-order-card {
+  background: #ffffff;
+  border: 1px solid rgb(238, 240, 244);
+  border-radius: 3px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.2s ease;
+}
+
+.dark .gn-order-card {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.gn-order-card:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.dark .gn-order-card:hover {
+  border-color: #4b5563;
+}
+
+/* Order Top Bar (.PAQEo in Ginee CSS) */
+.gn-order-top-bar {
+  height: 32px;
+  line-height: 32px;
+  background-color: rgb(240, 244, 250);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-size: 12px;
+  border-bottom: 1px solid rgb(238, 240, 244);
+}
+
+.dark .gn-order-top-bar {
+  background-color: #1e2838;
+  border-color: #374151;
+}
+
+/* Order Item Body (.hqIVdp & .eVSzxi in Ginee CSS) */
+.gn-order-body {
+  display: flex;
+  padding: 10px 14px;
+  font-size: 12px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.15);
+}
+
+.dark .gn-order-body {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.gn-order-body:last-child {
+  border-bottom: none;
+}
+
+/* ── Multi-product toggle button ("Lainnya ∨" / "Tutup ∧" matching Gambar 3 & 4) ── */
+.gn-btn-more-items {
+  background-color: #f0edff;
+  color: #6020ff;
+  border: 1px solid #d6c7ff;
+  border-radius: 12px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  line-height: 16px;
+  margin-top: 4px;
+}
+
+.gn-btn-more-items:hover {
+  background-color: #e4ddff;
+  color: #4b12d6;
+  border-color: #bfa7ff;
+}
+
+.dark .gn-btn-more-items {
+  background-color: rgba(96, 32, 255, 0.2);
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.4);
+}
+
+.dark .gn-btn-more-items:hover {
+  background-color: rgba(96, 32, 255, 0.35);
+  color: #ffffff;
+}
+
+/* MSKU highlight color */
+.gn-msku-code {
+  color: #6020ff;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.dark .gn-msku-code {
+  color: #a78bfa;
+}
+
+/* Text styles matching Ginee classes */
+.gn-text-prod-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgb(32, 45, 64);
+  max-width: 220px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.dark .gn-text-prod-title {
+  color: #f3f4f6;
+}
+
+.gn-text-gray {
+  color: rgb(137, 155, 181);
+}
+
+.dark .gn-text-gray {
+  color: #9ca3af;
+}
+
+.gn-text-warehouse {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgb(32, 45, 64);
+}
+
+.dark .gn-text-warehouse {
+  color: #e5e7eb;
+}
+
+.gn-text-warning-badge {
+  font-size: 11px;
+  color: rgb(250, 173, 20);
+  line-height: 1.3;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.gn-action-link {
+  color: rgb(22, 119, 255);
+  font-size: 12px;
+  line-height: 1.8;
+  cursor: pointer;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  display: block;
+  transition: color 0.2s;
+}
+
+.dark .gn-action-link {
+  color: #60a5fa;
+}
+
+.gn-action-link:hover {
+  color: rgb(96, 32, 255);
+  text-decoration: underline;
+}
+
+/* ── Copy Icon ─────────────────────────────────────────────────────────────── */
+.copy-text-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.common-text-copy {
+  color: rgb(140, 153, 172);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.common-text-copy:hover {
+  color: rgb(96, 32, 255);
+}
+
+/* ── Ant Pagination ────────────────────────────────────────────────────────── */
+.gn-pagination-container {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 4px;
+  font-size: 12px;
+  color: rgb(32, 45, 64);
+}
+
+.dark .gn-pagination-container {
+  color: #9ca3af;
+}
+
+.gn-page-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(173, 186, 204);
+  background: #ffffff;
+  border-radius: 3px;
+  cursor: pointer;
+  color: rgb(32, 45, 64);
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.dark .gn-page-btn {
+  background: #374151;
+  border-color: #4b5563;
+  color: #f3f4f6;
+}
+
+.gn-page-btn:hover:not(:disabled) {
+  border-color: rgb(96, 32, 255);
+  color: rgb(96, 32, 255);
+}
+
+.gn-page-btn.active {
+  border-color: rgb(96, 32, 255);
+  color: rgb(96, 32, 255);
+  font-weight: 600;
+  background: #ffffff;
+}
+
+.dark .gn-page-btn.active {
+  background: #1f2937;
+  border-color: #8b5cf6;
+  color: #c4b5fd;
+}
+
+.gn-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

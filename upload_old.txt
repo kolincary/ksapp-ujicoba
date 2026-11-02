@@ -1,0 +1,34 @@
+const handleAdminExcelUpload = async (file: File) => {
+      setAdminExcelFile(file);
+      setAdminImportError(null);
+      setAdminExcelData([]);
+      setAdminExcelColumns([]);
+      
+      try {
+         const reader = new FileReader();
+         reader.onload = async (e) => {
+            try {
+               const data = e.target?.result;
+               // Need to dynamically import XLSX to prevent initial bundle bloat
+               const XLSX = await import('xlsx');
+               const workbook = XLSX.read(data, { type: 'binary' });
+               const firstSheetName = workbook.SheetNames[0];
+               const worksheet = workbook.Sheets[firstSheetName];
+               const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+               
+               if (json.length > 0) {
+                  setAdminExcelColumns(Object.keys(json[0] as object));
+                  setAdminExcelData(json);
+               } else {
+                  setAdminImportError("File Excel kosong.");
+               }
+            } catch (err: any) {
+               setAdminImportError("Gagal membaca file Excel: " + err.message);
+            }
+         };
+         reader.onerror = () => setAdminImportError("Gagal membaca file.");
+         reader.readAsBinaryString(file);
+      } catch (err: any) {
+         setAdminImportError(err.message || String(err));
+      }
+   };
