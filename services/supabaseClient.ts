@@ -42,8 +42,16 @@ export const getConfig = (): ActiveSupabaseConfig => {
     let customUrl = localStorage.getItem('active_supabase_url') || localStorage.getItem('supabase_url');
     let customKey = localStorage.getItem('active_supabase_key') || localStorage.getItem('supabase_key');
 
-    // Auto-clean obsolete/blocked or non-target Supabase instances from legacy projects
-    if (customUrl && (!customUrl.includes('ldzsudeqrpmpjolpybsx') || customUrl.includes('kalindoapp') || customUrl.includes('nufvlqrtpzfiqghsxsze') || customUrl.includes('qfqmvdhnngvlsjnkoexm') || customUrl.includes('eekxcrkgsnaatgivccso') || customUrl.includes('mpsmbmfsembyhmmvdtao'))) {
+    // Auto-clean obsolete/blocked or quota-exceeded Supabase instances from legacy tests
+    const isKnownDeadUrl = (url: string) => {
+      return url.includes('kalindoapp') || 
+             url.includes('mpsmbmfsembyhmmvdtao') || 
+             url.includes('nufvlqrtpzfiqghsxsze') || 
+             url.includes('qfqmvdhnngvlsjnkoexm') || 
+             url.includes('eekxcrkgsnaatgivccso');
+    };
+
+    if (customUrl && isKnownDeadUrl(customUrl)) {
       try {
         localStorage.removeItem('active_supabase_url');
         localStorage.removeItem('active_supabase_key');
@@ -57,7 +65,7 @@ export const getConfig = (): ActiveSupabaseConfig => {
     const newUrl = localStorage.getItem('supabase_new_url') || DEFAULT_NEW_URL;
     const newKey = localStorage.getItem('supabase_new_key') || DEFAULT_NEW_KEY;
 
-    if (customUrl && customKey && customUrl.startsWith('https://')) {
+    if (customUrl && customKey && (customUrl.startsWith('https://') || customUrl.startsWith('http://'))) {
       let sanitizedKey = customKey.trim();
       if (customUrl.trim() === FALLBACK_URL && sanitizedKey !== FALLBACK_KEY) {
         sanitizedKey = FALLBACK_KEY;
