@@ -20,11 +20,6 @@ declare global {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onAdminLoginRequest }) => {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [googleReady, setGoogleReady] = useState(false);
-  const [showOAuthFallback, setShowOAuthFallback] = useState(false);
-  const isInitializedRef = useRef(false);
-  const googleBtnRef = useRef<HTMLDivElement>(null);
-  const googleBtnRefMobile = useRef<HTMLDivElement>(null);
 
   // Fallback OAuth Login via redirect
   const handleOAuthLogin = async () => {
@@ -66,128 +61,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onAdmi
     return () => subscription.unsubscribe();
   }, [onLoginSuccess]);
 
-  // Initialize Google Identity Services
+  // Initialize Google Auth session listener
   useEffect(() => {
-    const handleCredentialResponse = async (response: any) => {
-      setIsRedirecting(true);
-      setErrorMsg(null);
-
-      // 1. Instant Google ID Token verification & direct login
-      try {
-        if (response.credential) {
-          const base64Url = response.credential.split('.')[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-              return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
-          const payload = JSON.parse(jsonPayload);
-          if (payload && payload.email) {
-            console.log("✅ Google Sign-In Success via ID Token:", payload.email);
-            localStorage.setItem('kalindo_user_email', payload.email.trim());
-            onLoginSuccess(payload.email.trim());
-            setIsRedirecting(false);
-            return;
-          }
-        }
-      } catch (decodeErr) {
-        console.warn("Direct JWT decode notice:", decodeErr);
-      }
-
-      // 2. Direct Supabase Auth
-      try {
-        const { data, error } = await rawSupabase.auth.signInWithIdToken({
-          provider: 'google',
-          token: response.credential,
-        });
-
-        if (error) throw error;
-      } catch (err: any) {
-        console.error("Google Login Error:", err);
-        if (err?.message?.includes('Unacceptable audience') || err?.message?.includes('audience')) {
-          setErrorMsg("Client ID belum didaftarkan di Supabase Auth Provider. Mengalihkan ke login Google OAuth...");
-          await handleOAuthLogin();
-          return;
-        }
-        setErrorMsg(err.message || "Failed to sign in with Google.");
-        setIsRedirecting(false);
-      }
-    };
-
-    const renderGoogleButton = () => {
-      if (window.google) {
-        const refs = [googleBtnRef.current, googleBtnRefMobile.current].filter(Boolean);
-        refs.forEach((refNode) => {
-          if (refNode) {
-            refNode.innerHTML = '';
-            const parentWidth = refNode.clientWidth || 320;
-
-            window.google.accounts.id.renderButton(
-              refNode,
-              {
-                theme: "filled_blue",
-                size: "large",
-                text: "signin_with",
-                width: parentWidth,
-                shape: "pill",
-                logo_alignment: "left"
-              }
-            );
-          }
-        });
-      }
-    };
-
-    const initializeGoogleBtn = () => {
-      if (!window.google) return;
-      if (!isInitializedRef.current) {
-        try {
-          window.google.accounts.id.initialize({
-            client_id: GOOGLE_CLIENT_ID,
-            callback: handleCredentialResponse,
-            auto_select: false,
-            cancel_on_tap_outside: true,
-            use_fedcm_for_prompt: true
-          });
-          isInitializedRef.current = true;
-          setGoogleReady(true);
-        } catch (initErr) {
-          console.warn("GSI initialize notice:", initErr);
-        }
-      }
-      renderGoogleButton();
-
-      // Check if origin (e.g. localhost:3001) is blocked by Google GIS 403
-      // or if iframe failed to render within 1.2s
-      setTimeout(() => {
-        const desktopHasIframe = googleBtnRef.current?.querySelector('iframe');
-        const mobileHasIframe = googleBtnRefMobile.current?.querySelector('iframe');
-        const isNonStandardPort = window.location.port && window.location.port !== '3000';
-        if (!desktopHasIframe && !mobileHasIframe) {
-          setShowOAuthFallback(true);
-        } else if (isNonStandardPort) {
-          setShowOAuthFallback(true);
-        }
-      }, 1000);
-    };
-
-    if (window.google) {
-      initializeGoogleBtn();
-    } else {
-      const interval = setInterval(() => {
-        if (window.google) {
-          initializeGoogleBtn();
-          clearInterval(interval);
-        }
-      }, 300);
-      return () => clearInterval(interval);
-    }
-
-    const handleResize = () => {
-      renderGoogleButton();
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    // Session is checked via Supabase auth state change and session retrieval above
   }, []);
 
   // Dev Mode Bypass Listener 
@@ -304,28 +180,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onAdmi
               </div>
             )}
 
-            {/* Google Login Button Container Mobile */}
+            {/* Google Login Button Mobile */}
             <div className="w-full">
-              <div className="w-full min-h-[50px] relative">
-                <div ref={googleBtnRefMobile} id="google-btn-container-mobile" className="w-full min-h-[50px]"></div>
-
-                {(!googleReady || showOAuthFallback) && (
-                  <button
-                    onClick={handleOAuthLogin}
-                    className="w-full h-[50px] bg-[#1a73e8] hover:bg-[#1557b0] text-white font-semibold rounded-full shadow-md hover:shadow-lg transition-all active:scale-[0.99] flex items-center justify-center gap-3 px-4 mt-2"
-                  >
-                    <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shrink-0">
-                      <svg className="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
-                        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.25 21.3 7.31 24 12 24z" />
-                        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.18 0 10.02 0 12s.46 3.82 1.26 5.42l4.02-3.15z" />
-                        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
-                      </svg>
-                    </div>
-                    <span className="text-sm tracking-wide">Login dengan Google</span>
-                  </button>
-                )}
-              </div>
+              <button
+                onClick={handleOAuthLogin}
+                className="w-full h-[50px] bg-[#1a73e8] hover:bg-[#1557b0] text-white font-semibold rounded-full shadow-md hover:shadow-lg transition-all active:scale-[0.99] flex items-center justify-center gap-3 px-4"
+              >
+                <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shrink-0">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+                    <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.25 21.3 7.31 24 12 24z" />
+                    <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.18 0 10.02 0 12s.46 3.82 1.26 5.42l4.02-3.15z" />
+                    <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+                  </svg>
+                </div>
+                <span className="text-sm tracking-wide">Login dengan Google</span>
+              </button>
             </div>
 
             {/* Divider */}
@@ -439,28 +309,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onAdmi
                 </div>
               )}
 
-              {/* Google Login Button Container Desktop */}
+              {/* Google Login Button Desktop */}
               <div className="w-full">
-                <div className="w-full min-h-[50px] relative">
-                  <div ref={googleBtnRef} id="google-btn-container" className="w-full min-h-[50px]"></div>
-
-                  {(!googleReady || showOAuthFallback) && (
-                    <button
-                      onClick={handleOAuthLogin}
-                      className="w-full h-[50px] bg-[#1a73e8] hover:bg-[#1557b0] text-white font-semibold rounded-full shadow-md hover:shadow-lg transition-all active:scale-[0.99] flex items-center justify-center gap-3 px-4 mt-2"
-                    >
-                      <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shrink-0">
-                        <svg className="w-4 h-4" viewBox="0 0 24 24">
-                          <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
-                          <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.25 21.3 7.31 24 12 24z" />
-                          <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.18 0 10.02 0 12s.46 3.82 1.26 5.42l4.02-3.15z" />
-                          <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
-                        </svg>
-                      </div>
-                      <span className="text-sm tracking-wide">Login dengan Google</span>
-                    </button>
-                  )}
-                </div>
+                <button
+                  onClick={handleOAuthLogin}
+                  className="w-full h-[50px] bg-[#1a73e8] hover:bg-[#1557b0] text-white font-semibold rounded-full shadow-md hover:shadow-lg transition-all active:scale-[0.99] flex items-center justify-center gap-3 px-4"
+                >
+                  <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+                      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.25 21.3 7.31 24 12 24z" />
+                      <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.18 0 10.02 0 12s.46 3.82 1.26 5.42l4.02-3.15z" />
+                      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+                    </svg>
+                  </div>
+                  <span className="text-sm tracking-wide">Login dengan Google</span>
+                </button>
               </div>
 
               {/* Divider */}
