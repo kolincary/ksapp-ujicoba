@@ -225,3 +225,4 @@ ALTER TABLE public.running_texts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cancelled_orders DISABLE ROW LEVEL SECURITY;
 
 -- Selesai!
+

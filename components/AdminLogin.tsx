@@ -49,9 +49,9 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, onBack }) => 
           localStorage.removeItem(k);
         }
       });
-      if (localStorage.getItem('active_supabase_url') !== 'https://ldzsudeqrpmpjolpybsx.supabase.co') {
-        localStorage.setItem('active_supabase_url', 'https://ldzsudeqrpmpjolpybsx.supabase.co');
-        localStorage.setItem('active_supabase_key', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkenN1ZGVxcnBtcGpvbHB5YnN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2Mjg5NTksImV4cCI6MjEwOTIwNDk1OX0.4ZQW_0fW8QgZbHTy4zJoFK4RmnMmK6iagE6zHEVCDYg');
+      if (localStorage.getItem('active_supabase_url') !== 'http://103.52.114.209:8000') {
+        localStorage.setItem('active_supabase_url', 'http://103.52.114.209:8000');
+        localStorage.setItem('active_supabase_key', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE');
       }
     } catch (e) {}
 

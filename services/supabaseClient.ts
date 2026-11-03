@@ -2,9 +2,9 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { db } from './firebaseClient';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
-// Default Fallback Supabase credentials
-const FALLBACK_URL = 'https://ldzsudeqrpmpjolpybsx.supabase.co';
-const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkenN1ZGVxcnBtcGpvbHB5YnN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2Mjg5NTksImV4cCI6MjEwOTIwNDk1OX0.4ZQW_0fW8QgZbHTy4zJoFK4RmnMmK6iagE6zHEVCDYg';
+// Default Fallback Supabase credentials (Self-Hosted VPS)
+const FALLBACK_URL = 'http://103.52.114.209:8000';
+const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
 
 const DEFAULT_URL = (import.meta as any).env?.VITE_SUPABASE_URL || FALLBACK_URL;
 const DEFAULT_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || FALLBACK_KEY;
@@ -48,6 +48,7 @@ export const getConfig = (): ActiveSupabaseConfig => {
              url.includes('mpsmbmfsembyhmmvdtao') || 
              url.includes('nufvlqrtpzfiqghsxsze') || 
              url.includes('qfqmvdhnngvlsjnkoexm') || 
+             url.includes('ldzsudeqrpmpjolpybsx') || 
              url.includes('eekxcrkgsnaatgivccso');
     };
 
@@ -140,7 +141,7 @@ const createCustomFetch = (validAnonKey: string, projectRef: string) => {
       }
 
       // 2. If still 401 and the project is the primary/fallback URL, ensure it uses the verified FALLBACK_KEY
-      if (res.status === 401 && (String(input).includes('ldzsudeqrpmpjolpybsx') || String(input).includes('mpsmbmfsembyhmmvdtao') || String(input).includes('eekxcrkgsnaatgivccso') || String(input).includes('nufvlqrtpzfiqghsxsze'))) {
+      if (res.status === 401 && (String(input).includes('103.52.114.209') || String(input).includes('ldzsudeqrpmpjolpybsx') || String(input).includes('mpsmbmfsembyhmmvdtao') || String(input).includes('eekxcrkgsnaatgivccso') || String(input).includes('nufvlqrtpzfiqghsxsze'))) {
         console.warn('🔄 Retrying request with verified FALLBACK_KEY...');
         try {
           localStorage.setItem('active_supabase_key', FALLBACK_KEY);
@@ -179,7 +180,7 @@ export let rawSupabase: SupabaseClient = createClient(activeConfig.url, activeCo
   }
 });
 
-// PRIMARY BACKEND: Supabase (https://ldzsudeqrpmpjolpybsx.supabase.co)
+// PRIMARY BACKEND: Supabase VPS (http://103.52.114.209:8000)
 export let supabase: SupabaseClient = rawSupabase;
 
 export let supabaseNew: SupabaseClient = createClient(activeConfig.newUrl, activeConfig.newKey, {

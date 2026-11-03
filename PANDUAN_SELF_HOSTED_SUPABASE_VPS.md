@@ -129,3 +129,4 @@ Jika ingin aplikasi diakses via HTTPS (diperlukan agar kamera barcode scanner di
 1. Pasang Nginx Reverse Proxy di VPS Anda atau gunakan **Cloudflare Tunnel** (gratis).
 2. Arahkan subdomain (misal: `https://supabase.domainanda.com`) ke port `8000`.
 3. Ganti `VITE_SUPABASE_URL=https://supabase.domainanda.com` di `.env`.
+
