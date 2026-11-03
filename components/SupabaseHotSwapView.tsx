@@ -262,7 +262,7 @@ export const SupabaseHotSwapView: React.FC = () => {
               {extractProjectRef(activeUrl)}
             </div>
             <div className="text-[11px] text-blue-200/70 truncate mt-0.5">
-              {activeUrl.includes('/api/supabase') ? 'http://103.52.114.209:8000 (Secure Cloudflare Proxy)' : activeUrl}
+              {activeUrl.includes('trycloudflare') ? `${activeUrl} (VPS HTTPS Tunnel)` : activeUrl}
             </div>
             {activeTestStatus.count !== undefined && (
               <div className="text-[11px] font-bold text-emerald-300 mt-2 pt-2 border-t border-white/10 flex items-center justify-between">
@@ -308,7 +308,7 @@ export const SupabaseHotSwapView: React.FC = () => {
                   type="text"
                   value={sourceUri}
                   onChange={(e) => setSourceUri(e.target.value)}
-                  placeholder="postgresql://postgres.ldzsudeqrpmpjolpybsx:[YOUR-PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
+                  placeholder="postgresql://postgres:[YOUR-PASSWORD]@103.52.114.209:5432/postgres"
                   className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-orange-200 dark:border-orange-800 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-orange-500"
                 />
               </div>

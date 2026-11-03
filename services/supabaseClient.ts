@@ -2,23 +2,14 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { db } from './firebaseClient';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
-// Explicit Self-Hosted VPS Supabase credentials
-export const VPS_URL = 'http://103.52.114.209:8000';
+// Explicit Self-Hosted VPS Supabase credentials (HTTPS Tunnel & Direct IP fallback)
+export const VPS_URL = 'https://phd-meetings-aberdeen-jose.trycloudflare.com';
+export const VPS_DIRECT_IP_URL = 'http://103.52.114.209:8000';
 export const VPS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
 
-// Determine the URL to use:
-// If on an HTTPS origin (e.g. Cloudflare Pages https://ksapp-ujicoba.pages.dev), use proxy /api/supabase to prevent Mixed Content blocking.
-// Otherwise use direct http://103.52.114.209:8000.
-export const getEffectiveVpsUrl = (): string => {
-  if (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') {
-    return `${window.location.origin}/api/supabase`;
-  }
-  return VPS_URL;
-};
-
 // Khusus project 'kalindo scan server ujicoba', ABAIKAN env variables cloud lama dari Cloudflare (ldzsudeqrpmpjolpybsx)
-// Selalu gunakan VPS Supabase!
-const DEFAULT_URL = getEffectiveVpsUrl();
+// Selalu gunakan VPS Supabase secara langsung!
+const DEFAULT_URL = VPS_URL;
 const DEFAULT_KEY = VPS_KEY;
 
 const DEFAULT_NEW_URL = 'https://ymolrxscthxxtlmnxmob.supabase.co';
@@ -42,8 +33,8 @@ export interface ActiveSupabaseConfig {
 export const extractProjectRef = (url: string): string => {
   try {
     const clean = (url || '').trim().replace(/^https?:\/\//, '');
-    if (clean.includes('103.52.114.209') || clean.includes('/api/supabase')) {
-      return 'VPS Supabase (103.52.114.209:8000)';
+    if (clean.includes('103.52.114.209') || clean.includes('trycloudflare') || clean.includes('kalindo')) {
+      return 'VPS Supabase (103.52.114.209)';
     }
     return clean.split('.')[0] || 'unknown';
   } catch {
@@ -59,21 +50,23 @@ export const getConfig = (): ActiveSupabaseConfig => {
     const keysToClean = ['active_supabase_url', 'active_supabase_key', 'supabase_url', 'supabase_key'];
     keysToClean.forEach(k => {
       const val = localStorage.getItem(k);
-      if (val && !val.includes('103.52.114.209') && !val.includes('/api/supabase')) {
+      if (val && !val.includes('103.52.114.209') && !val.includes('trycloudflare')) {
         localStorage.removeItem(k);
       }
     });
   } catch (e) {}
 
-  const activeUrl = getEffectiveVpsUrl();
+  const activeUrl = localStorage.getItem('active_supabase_url') || VPS_URL;
+  const activeKey = localStorage.getItem('active_supabase_key') || VPS_KEY;
+
   return {
     url: activeUrl,
-    key: VPS_KEY,
+    key: activeKey,
     newUrl: DEFAULT_NEW_URL,
     newKey: DEFAULT_NEW_KEY,
     specialOldUrl: DEFAULT_SPECIAL_OLD_URL,
     specialOldKey: DEFAULT_SPECIAL_OLD_KEY,
-    projectRef: 'VPS Supabase (103.52.114.209:8000)',
+    projectRef: extractProjectRef(activeUrl),
     isCustom: false
   };
 };
