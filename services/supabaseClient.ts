@@ -30,6 +30,9 @@ export interface ActiveSupabaseConfig {
 export const extractProjectRef = (url: string): string => {
   try {
     const clean = (url || '').trim().replace(/^https?:\/\//, '');
+    if (clean.includes('103.52.114.209')) {
+      return 'VPS Supabase (103.52.114.209:8000)';
+    }
     return clean.split('.')[0] || 'unknown';
   } catch {
     return 'unknown';
@@ -39,7 +42,17 @@ export const extractProjectRef = (url: string): string => {
 // Helper to get config
 export const getConfig = (): ActiveSupabaseConfig => {
   // Khusus project 'kalindo scan server ujicoba', selalu gunakan DEFAULT_URL (VPS)
-  // agar 100% mandiri dan tidak terpengaruh atau mengganggu konfigurasi project lain
+  // Bersihkan cache localStorage lama agar browser tidak pernah tertinggal di instance lama
+  try {
+    const keysToClean = ['active_supabase_url', 'active_supabase_key', 'supabase_url', 'supabase_key'];
+    keysToClean.forEach(k => {
+      const val = localStorage.getItem(k);
+      if (val && !val.includes('103.52.114.209')) {
+        localStorage.removeItem(k);
+      }
+    });
+  } catch (e) {}
+
   return {
     url: DEFAULT_URL,
     key: DEFAULT_KEY,
@@ -184,8 +197,8 @@ export const testSupabaseConnection = async (
     if (!cleanUrl || !cleanKey) {
       return { success: false, message: 'URL dan Key tidak boleh kosong.' };
     }
-    if (!cleanUrl.startsWith('https://')) {
-      return { success: false, message: 'URL harus diawali dengan https://' };
+    if (!cleanUrl.startsWith('https://') && !cleanUrl.startsWith('http://')) {
+      return { success: false, message: 'URL harus diawali dengan http:// atau https://' };
     }
 
     const testClient = createClient(cleanUrl, cleanKey, {
@@ -200,11 +213,10 @@ export const testSupabaseConnection = async (
       }
     });
 
-    // Check table accessibility safely with limit 1 to prevent 500 statement timeout on huge tables
-    const { error } = await testClient
+    // Check table accessibility safely with head: true to count total rows without fetching data
+    const { count, error } = await testClient
       .from('scanned_items')
-      .select('id')
-      .limit(1);
+      .select('id', { count: 'exact', head: true });
 
     if (error) {
       const errMsg = (error.message || '').toLowerCase();
@@ -240,7 +252,7 @@ export const testSupabaseConnection = async (
     return {
       success: true,
       message: 'Koneksi Berhasil! Terhubung ke tabel scanned_items.',
-      rowCount: 1
+      rowCount: count !== null && count !== undefined ? count : 0
     };
   } catch (err: any) {
     return { success: false, message: `Error koneksi: ${err?.message || 'Tidak dapat menghubungi server'}` };
