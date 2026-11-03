@@ -38,77 +38,18 @@ export const extractProjectRef = (url: string): string => {
 
 // Helper to get config
 export const getConfig = (): ActiveSupabaseConfig => {
-  try {
-    let customUrl = localStorage.getItem('active_supabase_url') || localStorage.getItem('supabase_url');
-    let customKey = localStorage.getItem('active_supabase_key') || localStorage.getItem('supabase_key');
-
-    // Auto-clean obsolete/blocked or quota-exceeded Supabase instances from legacy tests
-    const isKnownDeadUrl = (url: string) => {
-      return url.includes('kalindoapp') || 
-             url.includes('mpsmbmfsembyhmmvdtao') || 
-             url.includes('nufvlqrtpzfiqghsxsze') || 
-             url.includes('qfqmvdhnngvlsjnkoexm') || 
-             url.includes('ldzsudeqrpmpjolpybsx') || 
-             url.includes('eekxcrkgsnaatgivccso');
-    };
-
-    if (customUrl && isKnownDeadUrl(customUrl)) {
-      try {
-        localStorage.removeItem('active_supabase_url');
-        localStorage.removeItem('active_supabase_key');
-        localStorage.removeItem('supabase_url');
-        localStorage.removeItem('supabase_key');
-      } catch (e) {}
-      customUrl = null;
-      customKey = null;
-    }
-
-    const newUrl = localStorage.getItem('supabase_new_url') || DEFAULT_NEW_URL;
-    const newKey = localStorage.getItem('supabase_new_key') || DEFAULT_NEW_KEY;
-
-    if (customUrl && customKey && (customUrl.startsWith('https://') || customUrl.startsWith('http://'))) {
-      let sanitizedKey = customKey.trim();
-      if (customUrl.trim() === FALLBACK_URL && sanitizedKey !== FALLBACK_KEY) {
-        sanitizedKey = FALLBACK_KEY;
-        try {
-          localStorage.setItem('active_supabase_key', FALLBACK_KEY);
-          localStorage.setItem('supabase_key', FALLBACK_KEY);
-        } catch (e) {}
-      }
-      return {
-        url: customUrl.trim(),
-        key: sanitizedKey,
-        newUrl: newUrl.trim(),
-        newKey: newKey.trim(),
-        specialOldUrl: DEFAULT_SPECIAL_OLD_URL,
-        specialOldKey: DEFAULT_SPECIAL_OLD_KEY,
-        projectRef: extractProjectRef(customUrl),
-        isCustom: true
-      };
-    }
-
-    return {
-      url: DEFAULT_URL,
-      key: DEFAULT_KEY,
-      newUrl: DEFAULT_NEW_URL,
-      newKey: DEFAULT_NEW_KEY,
-      specialOldUrl: DEFAULT_SPECIAL_OLD_URL,
-      specialOldKey: DEFAULT_SPECIAL_OLD_KEY,
-      projectRef: extractProjectRef(DEFAULT_URL),
-      isCustom: false
-    };
-  } catch (e) {
-    return {
-      url: DEFAULT_URL,
-      key: DEFAULT_KEY,
-      newUrl: DEFAULT_NEW_URL,
-      newKey: DEFAULT_NEW_KEY,
-      specialOldUrl: DEFAULT_SPECIAL_OLD_URL,
-      specialOldKey: DEFAULT_SPECIAL_OLD_KEY,
-      projectRef: extractProjectRef(DEFAULT_URL),
-      isCustom: false
-    };
-  }
+  // Khusus project 'kalindo scan server ujicoba', selalu gunakan DEFAULT_URL (VPS)
+  // agar 100% mandiri dan tidak terpengaruh atau mengganggu konfigurasi project lain
+  return {
+    url: DEFAULT_URL,
+    key: DEFAULT_KEY,
+    newUrl: DEFAULT_NEW_URL,
+    newKey: DEFAULT_NEW_KEY,
+    specialOldUrl: DEFAULT_SPECIAL_OLD_URL,
+    specialOldKey: DEFAULT_SPECIAL_OLD_KEY,
+    projectRef: extractProjectRef(DEFAULT_URL),
+    isCustom: false
+  };
 };
 
 // Resilient fetch handler to intercept and auto-recover from 401 Unauthorized errors caused by expired user sessions
@@ -328,7 +269,8 @@ export const setActiveSupabaseCredentials = async (
   refreshSupabaseClients();
 
   // 3. Broadcast to all users via Firestore Real-Time Config
-  if (broadcastToAllUsers && db) {
+  // (Dinonaktifkan di project ujicoba ini agar tidak menimpa settingan Firestore project lain)
+  if (false && broadcastToAllUsers && db) {
     try {
       const configRef = doc(db, 'system_config', 'supabase_active');
       await setDoc(configRef, {
@@ -348,49 +290,9 @@ export const setActiveSupabaseCredentials = async (
  * Listen to Firestore Remote Config for real-time hot-swap notifications across all user devices
  */
 export const initRemoteSupabaseConfigListener = () => {
-  if (!db) return () => {};
-
-  try {
-    const configRef = doc(db, 'system_config', 'supabase_active');
-    const unsubscribe = onSnapshot(configRef, (docSnap) => {
-      if (!docSnap.exists()) return;
-
-      const data = docSnap.data();
-      const remoteUrl = (data?.url || '').trim();
-      const remoteKey = (data?.key || '').trim();
-      const updatedAt = data?.updated_at || 0;
-
-      if (!remoteUrl || !remoteKey) return;
-
-      // Ignore obsolete or previous projects to prevent overwriting this test environment
-      if (remoteUrl.includes('eekxcrkgsnaatgivccso') || remoteUrl.includes('mpsmbmfsembyhmmvdtao') || remoteUrl.includes('nufvlqrtpzfiqghsxsze') || remoteUrl.includes('qfqmvdhnngvlsjnkoexm')) {
-        return;
-      }
-
-      const currentConfig = getConfig();
-      
-      // If remote URL is different from currently connected URL, dispatch update event
-      if (remoteUrl !== currentConfig.url) {
-        console.log(`⚡ REMOTE SUPABASE CHANGE DETECTED: ${currentConfig.url} ➔ ${remoteUrl}`);
-        window.dispatchEvent(new CustomEvent('supabase_config_changed', {
-          detail: {
-            url: remoteUrl,
-            key: remoteKey,
-            projectRef: extractProjectRef(remoteUrl),
-            updated_at: updatedAt,
-            updated_by: data?.updated_by || 'Admin'
-          }
-        }));
-      }
-    }, (err) => {
-      console.warn('Remote Supabase config listener notice:', err);
-    });
-
-    return unsubscribe;
-  } catch (err) {
-    console.warn('Failed to init remote Supabase listener:', err);
-    return () => {};
-  }
+  // Dinonaktifkan khusus untuk project 'kalindo scan server ujicoba'
+  // agar project ujicoba ini 100% mandiri dan tidak pernah mengganggu atau dipengaruhi Firestore project lain
+  return () => {};
 };
 
 /**
