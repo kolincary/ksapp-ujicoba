@@ -9,7 +9,7 @@ interface LoginScreenProps {
 }
 
 // Provided Google Client ID with env override
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '547501643468-92q8v07sfjglkf0s81capeo2vfl5a12l.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '547501643468-8td780qud5qgoenuec0kvu8faagqnq30.apps.googleusercontent.com';
 
 declare global {
   interface Window {
