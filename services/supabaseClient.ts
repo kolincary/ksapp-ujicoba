@@ -45,19 +45,33 @@ export const extractProjectRef = (url: string): string => {
 // Helper to get config
 export const getConfig = (): ActiveSupabaseConfig => {
   // Khusus project 'kalindo scan server ujicoba', selalu gunakan VPS Supabase
-  // Bersihkan cache localStorage lama agar browser tidak pernah tertinggal di instance lama
+  // Bersihkan cache localStorage lama dan URL HTTP yang memicu Mixed Content
   try {
+    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
     const keysToClean = ['active_supabase_url', 'active_supabase_key', 'supabase_url', 'supabase_key'];
     keysToClean.forEach(k => {
       const val = localStorage.getItem(k);
-      if (val && !val.includes('103.52.114.209') && !val.includes('trycloudflare')) {
-        localStorage.removeItem(k);
+      if (val) {
+        // Jika website berjalan di HTTPS (seperti ksapp-ujicoba.pages.dev), hapus semua URL http://
+        if (isHttps && val.startsWith('http://')) {
+          localStorage.removeItem(k);
+        } else if (!val.includes('103.52.114.209') && !val.includes('trycloudflare')) {
+          localStorage.removeItem(k);
+        }
       }
     });
   } catch (e) {}
 
-  const activeUrl = localStorage.getItem('active_supabase_url') || VPS_URL;
-  const activeKey = localStorage.getItem('active_supabase_key') || VPS_KEY;
+  let activeUrl = localStorage.getItem('active_supabase_url') || VPS_URL;
+  let activeKey = localStorage.getItem('active_supabase_key') || VPS_KEY;
+
+  // Proteksi mutlak Mixed Content di browser HTTPS: otomatis alihkan ke VPS_URL HTTPS jika masih http://
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && activeUrl.startsWith('http://')) {
+    activeUrl = VPS_URL;
+    try {
+      localStorage.setItem('active_supabase_url', activeUrl);
+    } catch (e) {}
+  }
 
   return {
     url: activeUrl,
