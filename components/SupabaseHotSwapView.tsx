@@ -262,7 +262,7 @@ export const SupabaseHotSwapView: React.FC = () => {
               {extractProjectRef(activeUrl)}
             </div>
             <div className="text-[11px] text-blue-200/70 truncate mt-0.5">
-              {activeUrl}
+              {activeUrl.includes('/api/supabase') ? 'http://103.52.114.209:8000 (Secure Cloudflare Proxy)' : activeUrl}
             </div>
             {activeTestStatus.count !== undefined && (
               <div className="text-[11px] font-bold text-emerald-300 mt-2 pt-2 border-t border-white/10 flex items-center justify-between">

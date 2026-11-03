@@ -2,12 +2,24 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { db } from './firebaseClient';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
-// Default Fallback Supabase credentials (Self-Hosted VPS)
-const FALLBACK_URL = 'http://103.52.114.209:8000';
-const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
+// Explicit Self-Hosted VPS Supabase credentials
+export const VPS_URL = 'http://103.52.114.209:8000';
+export const VPS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
 
-const DEFAULT_URL = (import.meta as any).env?.VITE_SUPABASE_URL || FALLBACK_URL;
-const DEFAULT_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || FALLBACK_KEY;
+// Determine the URL to use:
+// If on an HTTPS origin (e.g. Cloudflare Pages https://ksapp-ujicoba.pages.dev), use proxy /api/supabase to prevent Mixed Content blocking.
+// Otherwise use direct http://103.52.114.209:8000.
+export const getEffectiveVpsUrl = (): string => {
+  if (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') {
+    return `${window.location.origin}/api/supabase`;
+  }
+  return VPS_URL;
+};
+
+// Khusus project 'kalindo scan server ujicoba', ABAIKAN env variables cloud lama dari Cloudflare (ldzsudeqrpmpjolpybsx)
+// Selalu gunakan VPS Supabase!
+const DEFAULT_URL = getEffectiveVpsUrl();
+const DEFAULT_KEY = VPS_KEY;
 
 const DEFAULT_NEW_URL = 'https://ymolrxscthxxtlmnxmob.supabase.co';
 const DEFAULT_NEW_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inltb2xyeHNjdGh4eHRsbW54bW9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzNjgzNzgsImV4cCI6MjA3OTk0NDM3OH0.Hv64EHm_eZE3QHKN8QkdDFnYAQT1f_7KTDcaRoFobi8';
@@ -30,7 +42,7 @@ export interface ActiveSupabaseConfig {
 export const extractProjectRef = (url: string): string => {
   try {
     const clean = (url || '').trim().replace(/^https?:\/\//, '');
-    if (clean.includes('103.52.114.209')) {
+    if (clean.includes('103.52.114.209') || clean.includes('/api/supabase')) {
       return 'VPS Supabase (103.52.114.209:8000)';
     }
     return clean.split('.')[0] || 'unknown';
@@ -41,26 +53,27 @@ export const extractProjectRef = (url: string): string => {
 
 // Helper to get config
 export const getConfig = (): ActiveSupabaseConfig => {
-  // Khusus project 'kalindo scan server ujicoba', selalu gunakan DEFAULT_URL (VPS)
+  // Khusus project 'kalindo scan server ujicoba', selalu gunakan VPS Supabase
   // Bersihkan cache localStorage lama agar browser tidak pernah tertinggal di instance lama
   try {
     const keysToClean = ['active_supabase_url', 'active_supabase_key', 'supabase_url', 'supabase_key'];
     keysToClean.forEach(k => {
       const val = localStorage.getItem(k);
-      if (val && !val.includes('103.52.114.209')) {
+      if (val && !val.includes('103.52.114.209') && !val.includes('/api/supabase')) {
         localStorage.removeItem(k);
       }
     });
   } catch (e) {}
 
+  const activeUrl = getEffectiveVpsUrl();
   return {
-    url: DEFAULT_URL,
-    key: DEFAULT_KEY,
+    url: activeUrl,
+    key: VPS_KEY,
     newUrl: DEFAULT_NEW_URL,
     newKey: DEFAULT_NEW_KEY,
     specialOldUrl: DEFAULT_SPECIAL_OLD_URL,
     specialOldKey: DEFAULT_SPECIAL_OLD_KEY,
-    projectRef: extractProjectRef(DEFAULT_URL),
+    projectRef: 'VPS Supabase (103.52.114.209:8000)',
     isCustom: false
   };
 };
@@ -197,7 +210,7 @@ export const testSupabaseConnection = async (
     if (!cleanUrl || !cleanKey) {
       return { success: false, message: 'URL dan Key tidak boleh kosong.' };
     }
-    if (!cleanUrl.startsWith('https://') && !cleanUrl.startsWith('http://')) {
+    if (!cleanUrl.startsWith('https://') && !cleanUrl.startsWith('http://') && !cleanUrl.startsWith('/')) {
       return { success: false, message: 'URL harus diawali dengan http:// atau https://' };
     }
 
