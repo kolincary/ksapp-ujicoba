@@ -1187,7 +1187,7 @@ const GlobalSearchCard = React.memo(({
                {item.source_db === 'SUPABASE_PRIMARY' && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                      <Zap size={10} className="text-emerald-500" />
-                     <span>Utama</span>
+                     <span>Supabase VPS</span>
                   </span>
                )}
                {item.source_db === 'SUPABASE_ARCHIVE' && (
@@ -2176,12 +2176,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                if (!client) return [];
                const isLikelyBarcode = term.length >= 8 && !term.includes(' ');
 
-               let orQuery = `barcode.eq.${upper}`;
+               let orQuery = `barcode.eq.${upper},barcode.eq.${term}`;
                if (!isLikelyBarcode) {
                   if (table === 'leader_pending_scans' || table === 'leader_scan_2') {
-                     orQuery = `barcode.eq.${upper},barcode.ilike.%${term}%,leader_name.ilike.%${term}%,leader_profile.ilike.%${term}%`;
+                     orQuery = `barcode.eq.${upper},barcode.eq.${term},barcode.ilike.%${term}%,leader_name.ilike.%${term}%,leader_profile.ilike.%${term}%`;
                   } else {
-                     orQuery = `barcode.eq.${upper},barcode.ilike.%${term}%,destination.ilike.%${term}%`;
+                     orQuery = `barcode.eq.${upper},barcode.eq.${term},barcode.ilike.%${term}%,destination.ilike.%${term}%`;
                   }
                }
 
@@ -2262,12 +2262,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             archiveLeader2,
             fsData
          ] = await Promise.all([
-            fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase Utama', 'scanned_items'),
+            fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'scanned_items'),
             fetchSb(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'scanned_items'),
             fetchSb(supabaseSpecialOld, 'SUPABASE_OLD', 'Supabase Lama', 'scanned_items'),
-            fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase Utama', 'leader_pending_scans', 'LEADER_PENDING'),
+            fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'leader_pending_scans', 'LEADER_PENDING'),
             fetchSb(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'leader_pending_scans', 'LEADER_PENDING'),
-            fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase Utama', 'leader_scan_2', 'LEADER_2'),
+            fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'leader_scan_2', 'LEADER_2'),
             fetchSb(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'leader_scan_2', 'LEADER_2'),
             fetchFs()
          ]);
@@ -13236,10 +13236,7 @@ if (filterPackingShift !== 'ALL') {
                      <SidebarItem hiddenMenus={hiddenMenus} view="USER_MONITORING" icon={User} label="Check Active User" requiredPerm="view_dashboard" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      <SidebarItem hiddenMenus={hiddenMenus} view="ADMIN_NOTES" icon={StickyNote} label="Catatan Shift & Urgent" requiredPerm="" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      {(hasPermission('view_dashboard') || hasPermission('view_search_data')) && (
-                        <>
-                           <SidebarItem hiddenMenus={hiddenMenus} view="SEARCH_ALL" icon={Search} label="Search Data" requiredPerm="" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
-                           <SidebarItem hiddenMenus={hiddenMenus} view="SEARCH_ALL_FIRESTORE" icon={Search} label="Search Data 2" requiredPerm="" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
-                        </>
+                        <SidebarItem hiddenMenus={hiddenMenus} view="SEARCH_ALL" icon={Search} label="Search Data" requiredPerm="" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      )}
                   </SidebarSection>
                )}
@@ -15916,7 +15913,7 @@ if (filterPackingShift !== 'ALL') {
                                                 </span>
                                              </div>
                                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                                Pencarian otomatis di 4 Database: <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Supabase Utama</span>, <span className="text-purple-600 dark:text-purple-400 font-semibold">Supabase Archive</span>, <span className="text-blue-600 dark:text-blue-400 font-semibold">Supabase Lama</span>, dan <span className="text-amber-600 dark:text-amber-400 font-semibold">Firestore</span>.
+                                                Pencarian otomatis di 4 Database: <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Supabase VPS (103.52.114.209)</span>, <span className="text-purple-600 dark:text-purple-400 font-semibold">Supabase Archive</span>, <span className="text-blue-600 dark:text-blue-400 font-semibold">Supabase Lama</span>, dan <span className="text-amber-600 dark:text-amber-400 font-semibold">Firestore</span>.
                                              </p>
                                           </div>
                                        </div>
@@ -15999,7 +15996,7 @@ if (filterPackingShift !== 'ALL') {
                                           title="Filter Sumber Server Database"
                                        >
                                           <option value="ALL">Semua Server Database (Otomatis)</option>
-                                          <option value="SUPABASE_PRIMARY">Supabase Utama</option>
+                                          <option value="SUPABASE_PRIMARY">Supabase VPS (103.52.114.209)</option>
                                           <option value="SUPABASE_ARCHIVE">Supabase Archive</option>
                                           <option value="SUPABASE_OLD">Supabase Lama</option>
                                           <option value="FIRESTORE">Firestore</option>
@@ -16053,7 +16050,7 @@ if (filterPackingShift !== 'ALL') {
                                                       }`}
                                                    >
                                                       <Zap size={11} className={globalSearchServerFilter === 'SUPABASE_PRIMARY' ? "text-white" : "text-emerald-600 dark:text-emerald-400"} />
-                                                      Utama: {globalSearchResults.filter(r => r.source_db === 'SUPABASE_PRIMARY').length}
+                                                      VPS: {globalSearchResults.filter(r => r.source_db === 'SUPABASE_PRIMARY').length}
                                                    </button>
                                                    <button
                                                       type="button"
@@ -16126,7 +16123,7 @@ if (filterPackingShift !== 'ALL') {
                                                                {item.source_db === 'SUPABASE_PRIMARY' && (
                                                                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
                                                                      <Zap size={13} className="text-emerald-600 dark:text-emerald-400 fill-emerald-600/20" />
-                                                                     <span>Supabase Utama</span>
+                                                                     <span>Supabase VPS</span>
                                                                   </span>
                                                                )}
                                                                {item.source_db === 'SUPABASE_ARCHIVE' && (
