@@ -2879,7 +2879,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const safeUpsertToSupabaseScannedItems = async (items: any[]) => {
       if (!items || items.length === 0) return;
 
-      // In-batch deduplication untuk role non-picker agar tidak bentrok dalam 1 batch
+      // 1. In-batch deduplication untuk role non-picker agar tidak bentrok dalam 1 batch
       const seen = new Set<string>();
       const dedupedItems: any[] = [];
       for (const item of items) {
@@ -2897,20 +2897,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (dedupedItems.length === 0) return;
 
+      // 2. Pre-filter data non-picker yang SUDAH ADA di Supabase VPS (berdasarkan barcode)
+      // Ini mencegah PostgREST mengembalikan 409 Conflict di browser console
+      const nonPickerItems = dedupedItems.filter(
+         item => !['PICKER', 'PICKER_2', 'SORTIR_BATCH'].includes((item.role || '').toUpperCase())
+      );
+      const nonPickerBarcodes = Array.from(new Set(nonPickerItems.map(i => (i.barcode || '').trim().toUpperCase()).filter(Boolean)));
+
+      let itemsToInsert = dedupedItems;
+      if (nonPickerBarcodes.length > 0) {
+         try {
+            const { data: existingRows } = await supabase
+               .from('scanned_items')
+               .select('barcode, role, menu_context')
+               .in('barcode', nonPickerBarcodes);
+
+            if (existingRows && existingRows.length > 0) {
+               const existingKeys = new Set<string>();
+               for (const r of existingRows) {
+                  const k = `${(r.barcode || '').trim().toUpperCase()}|${(r.role || '').toUpperCase()}|${(r.menu_context || 'DEFAULT').toUpperCase()}`;
+                  existingKeys.add(k);
+               }
+
+               itemsToInsert = dedupedItems.filter(item => {
+                  const isMulti = ['PICKER', 'PICKER_2', 'SORTIR_BATCH'].includes((item.role || '').toUpperCase());
+                  if (isMulti) return true;
+                  const key = `${(item.barcode || '').trim().toUpperCase()}|${(item.role || '').toUpperCase()}|${(item.menu_context || 'DEFAULT').toUpperCase()}`;
+                  return !existingKeys.has(key);
+               });
+            }
+         } catch (chkErr) {
+            console.warn('[Sync Pre-check Warning]', chkErr);
+         }
+      }
+
+      // Jika seluruh data di batch ini ternyata sudah ada di Supabase VPS, selesai tanpa error
+      if (itemsToInsert.length === 0) {
+         return;
+      }
+
       const isDuplicateConstraintError = (err: any) => {
          const msg = String(err?.message || '');
          const code = String(err?.code || '');
          return code === '23505' || code === '409' || msg.includes('unique_scan_global_role_menu') || msg.includes('duplicate key');
       };
 
-      // Coba upsert batch sekaligus (onConflict: 'id', ignoreDuplicates: true)
+      // 3. Upsert batch sekaligus
       let batchSuccess = false;
       let lastErr: any = null;
 
       for (let attempt = 1; attempt <= 3; attempt++) {
          const { error } = await supabase
             .from('scanned_items')
-            .upsert(dedupedItems, { onConflict: 'id', ignoreDuplicates: true });
+            .upsert(itemsToInsert, { onConflict: 'id', ignoreDuplicates: true });
 
          if (!error) {
             batchSuccess = true;
@@ -2919,12 +2958,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
          lastErr = error;
 
-         // Jika error duplicate constraint, retry batch tidak akan mengubah hasil -> langsung ke fallback per-item
          if (isDuplicateConstraintError(error)) {
             break;
          }
 
-         // Error sementara (network / transient) -> tunggu dan coba lagi
          console.warn(`[Supabase Upsert Retry ${attempt}/3]:`, error.message);
          if (attempt < 3) {
             await new Promise(r => setTimeout(r, 1000 * attempt));
@@ -2933,10 +2970,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (batchSuccess) return;
 
-      // Fallback: jika terjadi unique constraint conflict (misal unique_scan_global_role_menu),
-      // proses row-by-row dan lewati (skip) yang duplikat
+      // 4. Fallback jika masih terbentur duplicate constraint: proses satu per satu dan lewati yang duplikat
       if (isDuplicateConstraintError(lastErr)) {
-         for (const singleItem of dedupedItems) {
+         for (const singleItem of itemsToInsert) {
             const { error: singleErr } = await supabase
                .from('scanned_items')
                .upsert([singleItem], { onConflict: 'id', ignoreDuplicates: true });
@@ -5066,19 +5102,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const trk = (newRec?.tracking_no || '').trim().toUpperCase();
             if (trk && trk.length >= 4) {
                try {
-                  const { data: exist } = await supabase.from('cancelled_orders').select('id').eq('barcode', trk).limit(1);
-                  if (!exist || exist.length === 0) {
-                     await supabase.from('cancelled_orders').insert([{
-                        barcode: trk,
-                        cancelled_by: 'Ginee OMS Realtime',
-                        reason: newRec.reason || 'Dibatalkan di Marketplace / Ginee OMS',
-                        cancelled_at: newRec.cancelled_at || new Date().toISOString(),
-                        is_active: true
-                     }]);
-                     if (activeView === 'CANCEL_DATA') {
-                        fetchCancelledOrders(false);
-                     }
-                  }
+                  const { error: cancelInsErr } = await supabase
+                      .from('cancelled_orders')
+                      .upsert([{
+                         barcode: trk,
+                         cancelled_by: 'Ginee OMS Realtime',
+                         reason: newRec.reason || 'Dibatalkan di Marketplace / Ginee OMS',
+                         cancelled_at: newRec.cancelled_at || new Date().toISOString(),
+                         is_active: true
+                      }], { onConflict: 'barcode', ignoreDuplicates: true });
+
+                   if (!cancelInsErr && activeView === 'CANCEL_DATA') {
+                      fetchCancelledOrders(false);
+                   }
                } catch (err) {
                   console.warn('[AdminDashboard] Realtime Ginee insert listener error:', err);
                }
