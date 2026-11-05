@@ -6,6 +6,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 export const VPS_URL = 'https://phd-meetings-aberdeen-jose.trycloudflare.com';
 export const VPS_DIRECT_IP_URL = 'http://103.52.114.209:8000';
 export const VPS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
+export const FALLBACK_KEY = VPS_KEY;
 
 // Khusus project 'kalindo scan server ujicoba', ABAIKAN env variables cloud lama dari Cloudflare (ldzsudeqrpmpjolpybsx)
 // Selalu gunakan VPS Supabase secara langsung!
@@ -114,17 +115,17 @@ const createCustomFetch = (validAnonKey: string, projectRef: string) => {
         });
       }
 
-      // 2. If still 401 and the project is the primary/fallback URL, ensure it uses the verified FALLBACK_KEY
-      if (res.status === 401 && (String(input).includes('103.52.114.209') || String(input).includes('ldzsudeqrpmpjolpybsx') || String(input).includes('mpsmbmfsembyhmmvdtao') || String(input).includes('eekxcrkgsnaatgivccso') || String(input).includes('nufvlqrtpzfiqghsxsze'))) {
-        console.warn('🔄 Retrying request with verified FALLBACK_KEY...');
+      // 2. If still 401 and the project is the primary/fallback URL, ensure it uses the verified VPS_KEY
+      if (res.status === 401 && (String(input).includes('103.52.114.209') || String(input).includes('trycloudflare') || String(input).includes('ldzsudeqrpmpjolpybsx') || String(input).includes('mpsmbmfsembyhmmvdtao') || String(input).includes('eekxcrkgsnaatgivccso') || String(input).includes('nufvlqrtpzfiqghsxsze'))) {
+        console.warn('🔄 Retrying request with verified VPS_KEY...');
         try {
-          localStorage.setItem('active_supabase_key', FALLBACK_KEY);
-          localStorage.setItem('supabase_key', FALLBACK_KEY);
+          localStorage.setItem('active_supabase_key', VPS_KEY);
+          localStorage.setItem('supabase_key', VPS_KEY);
         } catch (e) {}
 
         const newHeaders = new Headers(init?.headers);
-        newHeaders.set('Authorization', `Bearer ${FALLBACK_KEY}`);
-        newHeaders.set('apikey', FALLBACK_KEY);
+        newHeaders.set('Authorization', `Bearer ${VPS_KEY}`);
+        newHeaders.set('apikey', VPS_KEY);
 
         res = await fetch(input, {
           ...init,
