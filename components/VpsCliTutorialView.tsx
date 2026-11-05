@@ -16,7 +16,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   HelpCircle,
-  Cpu
+  Cpu,
+  Info
 } from 'lucide-react';
 
 export const VpsCliTutorialView: React.FC = () => {
