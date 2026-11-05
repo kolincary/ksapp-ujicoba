@@ -7,7 +7,7 @@ import { syncGineeCancelledOrdersToKalindo } from '../services/gineeSupabaseServ
 import { isGineeSyncEnabled, setGineeSyncEnabled } from '../services/gineeGlobalSyncService';
 import { logDeletionAction } from '../services/deletionLogService';
 import { db } from '../services/firebaseClient';
-import { collection, writeBatch, doc, getDocs, query as fsQuery, where, limit as fsLimit, getCountFromServer, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, writeBatch, doc, getDocs, query as fsQuery, where, orderBy, limit as fsLimit, getCountFromServer, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { ProfileConfigView } from './ProfileConfigView';
 import { FirestoreManagerView } from './FirestoreManagerView';
 import { AdminBatchImportsView } from './AdminBatchImportsView';
@@ -2619,6 +2619,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const [syncEndDate, setSyncEndDate] = useState(() => new Date().toISOString().split('T')[0]);
    const [syncRole, setSyncRole] = useState('SEMUA');
    const [syncCollectionName, setSyncCollectionName] = useState('scanned_items');
+   const [syncDirection, setSyncDirection] = useState<'FS_TO_SB' | 'SB_TO_FS'>('FS_TO_SB');
    const [isSyncingFs, setIsSyncingFs] = useState(false);
    const [syncProgressFs, setSyncProgressFs] = useState(0);
    const [syncTotalCountFs, setSyncTotalCountFs] = useState(0);
@@ -2743,7 +2744,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   setSuccessToast(newState ? "⚡ Waktu Timestamp Ditampilkan (DevMode)!" : "Waktu Timestamp Disembunyikan");
                   return newState;
                });
-               if (activeView === 'SEARCH_ALL_FIRESTORE') {
+               if (activeView === 'SEARCH_ALL_FIRESTORE' || activeView === 'SEARCH_ALL') {
                   setShowFsSyncDevMode(prev => !prev);
                }
                currentIndex = 0;
@@ -2756,6 +2757,353 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
    }, [activeView, isOnlyAdmin]);
+
+   // Helper untuk normalisasi dokumen Firestore ke skema tabel scanned_items Supabase VPS
+   const normalizeFirestoreDocToSupabase = (docId: string, data: any) => {
+      let ms = Date.now();
+      if (data.timestamp !== undefined && data.timestamp !== null) {
+         if (typeof data.timestamp === 'number') {
+            ms = data.timestamp;
+         } else if (typeof data.timestamp.toMillis === 'function') {
+            ms = data.timestamp.toMillis();
+         } else if (typeof data.timestamp.seconds === 'number') {
+            ms = data.timestamp.seconds * 1000;
+         } else if (typeof data.timestamp === 'string') {
+            const p = new Date(data.timestamp).getTime();
+            if (!isNaN(p)) ms = p;
+         }
+      } else if (data.created_at) {
+         if (typeof data.created_at.toMillis === 'function') {
+            ms = data.created_at.toMillis();
+         } else if (typeof data.created_at === 'string') {
+            const p = new Date(data.created_at).getTime();
+            if (!isNaN(p)) ms = p;
+         }
+      }
+
+      let scanDate = data.scan_date || data.date;
+      if (!scanDate || typeof scanDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(scanDate)) {
+         const d = new Date(ms);
+         const y = d.getFullYear();
+         const m = String(d.getMonth() + 1).padStart(2, '0');
+         const day = String(d.getDate()).padStart(2, '0');
+         scanDate = `${y}-${m}-${day}`;
+      }
+
+      let createdAt = data.created_at;
+      if (!createdAt || typeof createdAt !== 'string') {
+         if (createdAt && typeof createdAt.toDate === 'function') {
+            createdAt = createdAt.toDate().toISOString();
+         } else {
+            createdAt = new Date(ms).toISOString();
+         }
+      }
+
+      let teamMembers = data.team_members || [];
+      if (typeof teamMembers === 'string') {
+         try {
+            teamMembers = JSON.parse(teamMembers);
+         } catch {
+            if (teamMembers.startsWith('{') && teamMembers.endsWith('}')) {
+               teamMembers = teamMembers.slice(1, -1).split(',').map((s: string) => s.trim().replace(/^"|"$/g, ''));
+            } else {
+               teamMembers = [teamMembers];
+            }
+         }
+      }
+      if (!Array.isArray(teamMembers)) {
+         teamMembers = [];
+      }
+
+      return {
+         id: String(data.id || docId),
+         barcode: String(data.barcode || ''),
+         role: String(data.role || 'UNKNOWN').toUpperCase(),
+         user_email: data.user_email || '',
+         destination: data.destination || '',
+         description: data.description || '',
+         priority: data.priority || 'NORMAL',
+         status: data.status || 'OK',
+         employee_name: data.employee_name || '',
+         scan_date: scanDate,
+         menu_context: data.menu_context || 'DEFAULT',
+         scan_mode: data.scan_mode || 'MANDIRI',
+         timestamp: ms,
+         created_at: createdAt,
+         team_members: teamMembers,
+         excel_filename: data.excel_filename || '',
+         report_keterangan: data.report_keterangan || null,
+         report_msku: data.report_msku || null,
+         report_qty: data.report_qty || null,
+         order_id: data.order_id || null
+      };
+   };
+
+   // Helper Shortcut Tanggal
+   const setQuickSyncDate = (type: 'TODAY' | 'YESTERDAY' | '7DAYS' | '30DAYS') => {
+      const now = new Date();
+      const fmt = (dt: Date) => {
+         const y = dt.getFullYear();
+         const m = String(dt.getMonth() + 1).padStart(2, '0');
+         const d = String(dt.getDate()).padStart(2, '0');
+         return `${y}-${m}-${d}`;
+      };
+
+      if (type === 'TODAY') {
+         const t = fmt(now);
+         setSyncStartDate(t);
+         setSyncEndDate(t);
+      } else if (type === 'YESTERDAY') {
+         const y = new Date();
+         y.setDate(y.getDate() - 1);
+         const yt = fmt(y);
+         setSyncStartDate(yt);
+         setSyncEndDate(yt);
+      } else if (type === '7DAYS') {
+         const s = new Date();
+         s.setDate(s.getDate() - 6);
+         setSyncStartDate(fmt(s));
+         setSyncEndDate(fmt(now));
+      } else if (type === '30DAYS') {
+         const s = new Date();
+         s.setDate(s.getDate() - 29);
+         setSyncStartDate(fmt(s));
+         setSyncEndDate(fmt(now));
+      }
+   };
+
+   // 13a. Sinkronisasi Data Firestore ➔ Supabase VPS Sekaligus
+   const handleSyncFirestoreToSupabase = async () => {
+      if (isSyncingFs) return;
+      if (!syncStartDate || !syncEndDate) {
+         alert('Silakan pilih Tanggal Mulai dan Tanggal Akhir terlebih dahulu!');
+         return;
+      }
+      setIsSyncingFs(true);
+      setSyncProgressFs(0);
+      setSyncProcessedCountFs(0);
+      setSyncTotalCountFs(0);
+      setSyncBatchCurrentFs(0);
+      setSyncBatchTotalFs(0);
+      setSyncStatusMsgFs('🔍 Mengambil data dari Firestore dan menyinkronkan ke Supabase VPS...');
+
+      try {
+         const targetCollection = syncCollectionName.trim() || 'scanned_items';
+
+         const startTs = new Date(`${syncStartDate}T00:00:00`).getTime();
+         const endTs = new Date(`${syncEndDate}T23:59:59.999`).getTime();
+
+         const qConstraints: any[] = [
+            where('timestamp', '>=', startTs),
+            where('timestamp', '<=', endTs),
+            orderBy('timestamp', 'asc')
+         ];
+
+         const activeQuery = fsQuery(collection(db, targetCollection), ...qConstraints);
+
+         setSyncStatusMsgFs('📥 Mengunduh dokumen dari Firestore...');
+         const snap = await getDocs(activeQuery);
+
+         if (snap.empty) {
+            setSyncStatusMsgFs('⚠️ Tidak ada data Firestore yang ditemukan untuk rentang tanggal ini.');
+            return;
+         }
+
+         let docsToProcess = snap.docs;
+         if (syncRole && syncRole !== 'SEMUA') {
+            docsToProcess = docsToProcess.filter(d => (d.data().role || '').toUpperCase() === syncRole.toUpperCase());
+         }
+
+         const totalDocs = docsToProcess.length;
+         setSyncTotalCountFs(totalDocs);
+
+         if (totalDocs === 0) {
+            setSyncStatusMsgFs(`⚠️ Tidak ada data dengan role '${syncRole}' ditemukan di Firestore untuk rentang ini.`);
+            return;
+         }
+
+         const roleBreakdown: Record<string, number> = {};
+         const BATCH_SIZE = 500;
+         const numBatches = Math.ceil(totalDocs / BATCH_SIZE);
+         setSyncBatchTotalFs(numBatches);
+
+         let grandProcessed = 0;
+
+         for (let b = 0; b < numBatches; b++) {
+            setSyncBatchCurrentFs(b + 1);
+            const chunkDocs = docsToProcess.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+            const batchItems: any[] = [];
+
+            for (const docSnap of chunkDocs) {
+               const normalized = normalizeFirestoreDocToSupabase(docSnap.id, docSnap.data());
+               batchItems.push(normalized);
+
+               const roleName = normalized.role || 'UNKNOWN';
+               roleBreakdown[roleName] = (roleBreakdown[roleName] || 0) + 1;
+            }
+
+            setSyncRoleBreakdownFs({ ...roleBreakdown });
+
+            const { error: sbError } = await supabase
+               .from('scanned_items')
+               .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
+
+            if (sbError) {
+               throw new Error(`Gagal menyimpan batch ${b + 1} ke Supabase VPS: ${sbError.message}`);
+            }
+
+            grandProcessed += chunkDocs.length;
+            setSyncProcessedCountFs(grandProcessed);
+            const pct = Math.round((grandProcessed / totalDocs) * 100);
+            setSyncProgressFs(pct);
+            setSyncStatusMsgFs(`Sedang menyinkronkan: ${grandProcessed} / ${totalDocs} data ke Supabase VPS (${pct}%)...`);
+         }
+
+         setSyncStatusMsgFs(`✅ Sinkronisasi Berhasil! Total ${grandProcessed} data dari Firestore diproses ke Supabase VPS (Duplikat otomatis di-skip).`);
+         setSuccessToast(`Sinkronisasi Firestore ➔ Supabase VPS selesai (${grandProcessed} data)!`);
+      } catch (err: any) {
+         console.error('Sync Firestore to Supabase error:', err);
+         setSyncStatusMsgFs(`❌ Gagal Sinkronisasi: ${err.message || 'Error tidak diketahui'}`);
+      } finally {
+         setIsSyncingFs(false);
+      }
+   };
+
+   // 13b. Sinkronisasi Data Firestore ➔ Supabase VPS Per Hari (Auto-Retry)
+   const handleSyncFirestoreToSupabaseByDayRange = async () => {
+      if (isSyncingFs) return;
+      if (!syncStartDate || !syncEndDate) {
+         alert('Silakan pilih Tanggal Mulai dan Tanggal Akhir!');
+         return;
+      }
+
+      const startDateObj = new Date(`${syncStartDate}T00:00:00`);
+      const endDateObj = new Date(`${syncEndDate}T00:00:00`);
+
+      if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
+         alert('Format tanggal tidak valid!');
+         return;
+      }
+
+      if (startDateObj > endDateObj) {
+         alert('Tanggal Mulai tidak boleh lebih besar dari Tanggal Akhir!');
+         return;
+      }
+
+      setIsSyncingFs(true);
+      setSyncProgressFs(0);
+      setSyncProcessedCountFs(0);
+      setSyncTotalCountFs(0);
+      setSyncBatchCurrentFs(0);
+      setSyncBatchTotalFs(0);
+
+      const targetCollection = syncCollectionName.trim() || 'scanned_items';
+
+      const datesToProcess: { year: number; month: string; day: string; dateStr: string; displayStr: string }[] = [];
+      let curr = new Date(startDateObj);
+      while (curr <= endDateObj) {
+         const y = curr.getFullYear();
+         const m = String(curr.getMonth() + 1).padStart(2, '0');
+         const d = String(curr.getDate()).padStart(2, '0');
+         datesToProcess.push({
+            year: y,
+            month: m,
+            day: d,
+            dateStr: `${y}-${m}-${d}`,
+            displayStr: `${d}/${m}/${y}`
+         });
+         curr.setDate(curr.getDate() + 1);
+      }
+
+      setSyncStatusMsgFs(`🚀 Memulai Sinkronisasi Rentang (${datesToProcess.length} hari: ${datesToProcess[0].displayStr} s/d ${datesToProcess[datesToProcess.length - 1].displayStr}) Firestore ➔ Supabase VPS...`);
+
+      let grandTotalProcessed = 0;
+      const roleBreakdown: Record<string, number> = {};
+
+      for (let i = 0; i < datesToProcess.length; i++) {
+         const dateInfo = datesToProcess[i];
+         let daySuccess = false;
+         let retryAttempt = 0;
+         const maxRetries = 3;
+
+         while (!daySuccess && retryAttempt < maxRetries) {
+            try {
+               retryAttempt++;
+               const statusPrefix = retryAttempt > 1 ? `[Retry #${retryAttempt}] ` : '';
+               setSyncStatusMsgFs(`${statusPrefix}Mengambil data Firestore tanggal ${dateInfo.displayStr} (${i + 1}/${datesToProcess.length} hari)...`);
+
+               const startTs = new Date(`${dateInfo.dateStr}T00:00:00`).getTime();
+               const endTs = new Date(`${dateInfo.dateStr}T23:59:59.999`).getTime();
+
+               const dayQuery = fsQuery(
+                  collection(db, targetCollection),
+                  where('timestamp', '>=', startTs),
+                  where('timestamp', '<=', endTs),
+                  orderBy('timestamp', 'asc')
+               );
+
+               const snap = await getDocs(dayQuery);
+               let docsForDay = snap.docs;
+
+               if (syncRole && syncRole !== 'SEMUA') {
+                  docsForDay = docsForDay.filter(d => (d.data().role || '').toUpperCase() === syncRole.toUpperCase());
+               }
+
+               if (docsForDay.length > 0) {
+                  const BATCH_SIZE = 500;
+                  const numChunks = Math.ceil(docsForDay.length / BATCH_SIZE);
+
+                  for (let c = 0; c < numChunks; c++) {
+                     const chunk = docsForDay.slice(c * BATCH_SIZE, (c + 1) * BATCH_SIZE);
+                     const batchItems = chunk.map(docSnap => {
+                        const normalized = normalizeFirestoreDocToSupabase(docSnap.id, docSnap.data());
+                        const roleName = normalized.role || 'UNKNOWN';
+                        roleBreakdown[roleName] = (roleBreakdown[roleName] || 0) + 1;
+                        return normalized;
+                     });
+
+                     setSyncRoleBreakdownFs({ ...roleBreakdown });
+
+                     const { error: sbError } = await supabase
+                        .from('scanned_items')
+                        .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
+
+                     if (sbError) {
+                        throw new Error(`Gagal simpan batch tanggal ${dateInfo.displayStr}: ${sbError.message}`);
+                     }
+                  }
+               }
+
+               grandTotalProcessed += docsForDay.length;
+               setSyncProcessedCountFs(grandTotalProcessed);
+               setSyncTotalCountFs(grandTotalProcessed);
+               const overallPct = Math.round(((i + 1) / datesToProcess.length) * 100);
+               setSyncProgressFs(overallPct);
+
+               daySuccess = true;
+               if (docsForDay.length === 0) {
+                  setSyncStatusMsgFs(`ℹ️ Tanggal ${dateInfo.displayStr}: Tidak ada data Firestore ditemukan. Lanjut...`);
+               } else {
+                  setSyncStatusMsgFs(`✅ Tanggal ${dateInfo.displayStr} Selesai! (${docsForDay.length} data). Total: ${grandTotalProcessed} data...`);
+               }
+            } catch (err: any) {
+               const errMsg = err.message || 'Error tidak diketahui';
+               console.warn(`[Sync Day Retry] Gagal proses tanggal ${dateInfo.displayStr}:`, err);
+               if (retryAttempt < maxRetries) {
+                  setSyncStatusMsgFs(`⚠️ Gagal Tanggal ${dateInfo.displayStr} (Percobaan ${retryAttempt}/${maxRetries}): ${errMsg}. Menunggu retry 3 detik...`);
+                  await new Promise(res => setTimeout(res, 3000));
+               } else {
+                  setSyncStatusMsgFs(`❌ Dilewati Tanggal ${dateInfo.displayStr}: ${errMsg}. Melanjutkan ke tanggal berikutnya...`);
+                  daySuccess = true;
+               }
+            }
+         }
+      }
+
+      setSyncStatusMsgFs(`✅ Sinkronisasi Selesai! Total ${grandTotalProcessed} data dari Firestore diproses ke Supabase VPS.`);
+      setSuccessToast(`Sinkronisasi Selesai! Total ${grandTotalProcessed} data terkirim ke Supabase VPS.`);
+      setIsSyncingFs(false);
+   };
 
    const handleSyncSupabaseToFirestore = async () => {
       if (isSyncingFs) return;
@@ -13155,6 +13503,372 @@ if (filterPackingShift !== 'ALL') {
    // --- END COMPARE LOGISTIK LOGIC ---
 
 
+   // Panel Sinkronisasi Data Dua Arah: Firestore ⇄ Supabase VPS
+   const renderSyncDataPanel = () => {
+      if (!showFsSyncDevMode && !isDevMode && !showSecretMenu) return null;
+
+      return (
+         <div className="p-4 sm:p-6 pb-2 max-w-7xl mx-auto w-full shrink-0">
+            <div className="p-4 sm:p-6 bg-gradient-to-br from-slate-900 via-gray-900 to-orange-950 text-white rounded-2xl shadow-2xl border border-orange-500/30 relative overflow-hidden transition-all">
+               {/* Decorative Background */}
+               <div className="absolute -right-12 -top-12 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+               <div className="absolute -left-12 -bottom-12 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+               {/* Header Badge & Close Button */}
+               <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-5 border-b border-gray-800/80 pb-4">
+                  <div className="flex items-center gap-3">
+                     <div className="p-2 sm:p-2.5 bg-gradient-to-tr from-orange-600 to-amber-500 text-white rounded-xl shadow-lg shadow-orange-500/30 shrink-0">
+                        <RefreshCw size={20} className={isSyncingFs ? "animate-spin" : ""} />
+                     </div>
+                     <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                           <h4 className="text-base sm:text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-yellow-200">
+                              ⚡️ Panel Sinkronisasi Data: Firestore ⇄ Supabase VPS
+                           </h4>
+                           <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/40">
+                              SYNC MANAGER
+                           </span>
+                        </div>
+                        <p className="text-xs text-gray-300 mt-1">
+                           {syncDirection === 'FS_TO_SB' ? (
+                              <span>
+                                 📥 Membaca data dari <strong className="text-amber-400">Firestore</strong> lalu menyimpan ke <strong className="text-emerald-400">Supabase VPS</strong>. (Aman: duplikat otomatis dilewati, tanpa menimpa data live, hemat read Firestore).
+                              </span>
+                           ) : (
+                              <span>
+                                 📤 Membaca data dari <strong className="text-emerald-400">Supabase VPS</strong> lalu mengirimkan ke <strong className="text-amber-400">Firestore</strong>. (Multi-Batch 250 data per batch).
+                              </span>
+                           )}
+                        </p>
+                     </div>
+                  </div>
+
+                  <button
+                     onClick={() => setShowFsSyncDevMode(false)}
+                     className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all ml-auto sm:ml-0 cursor-pointer"
+                     title="Tutup Panel Sinkronisasi"
+                  >
+                     <X size={18} />
+                  </button>
+               </div>
+
+               {/* DIRECTION SELECTOR TABS */}
+               <div className="flex flex-wrap items-center gap-2 mb-4 p-1.5 bg-black/50 border border-gray-800 rounded-xl">
+                  <button
+                     type="button"
+                     onClick={() => setSyncDirection('FS_TO_SB')}
+                     className={`flex-1 min-w-[220px] py-2.5 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        syncDirection === 'FS_TO_SB'
+                           ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-md shadow-emerald-500/20'
+                           : 'text-gray-400 hover:text-white hover:bg-white/5'
+                     }`}
+                  >
+                     <Database size={15} />
+                     <span>🌟 Firestore ➔ Supabase VPS (Disarankan)</span>
+                  </button>
+                  <button
+                     type="button"
+                     onClick={() => setSyncDirection('SB_TO_FS')}
+                     className={`flex-1 min-w-[220px] py-2.5 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        syncDirection === 'SB_TO_FS'
+                           ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20'
+                           : 'text-gray-400 hover:text-white hover:bg-white/5'
+                     }`}
+                  >
+                     <Zap size={15} />
+                     <span>⚡ Supabase VPS ➔ Firestore</span>
+                  </button>
+               </div>
+
+               {/* QUICK DATE SHORTCUTS */}
+               <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[11px] font-bold text-gray-400">
+                  <span className="mr-1 text-gray-400">Pilih Cepat:</span>
+                  <button
+                     type="button"
+                     onClick={() => setQuickSyncDate('TODAY')}
+                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                  >
+                     Hari Ini
+                  </button>
+                  <button
+                     type="button"
+                     onClick={() => setQuickSyncDate('YESTERDAY')}
+                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                  >
+                     Kemarin
+                  </button>
+                  <button
+                     type="button"
+                     onClick={() => setQuickSyncDate('7DAYS')}
+                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                  >
+                     7 Hari Terakhir
+                  </button>
+                  <button
+                     type="button"
+                     onClick={() => setQuickSyncDate('30DAYS')}
+                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                  >
+                     30 Hari Terakhir
+                  </button>
+               </div>
+
+               {/* Form Inputs Grid */}
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-5">
+                  {/* Tanggal Mulai */}
+                  <div className="relative">
+                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <CalendarIcon size={14} className="text-orange-400" />
+                        Tanggal Mulai
+                     </label>
+                     <input
+                        type="date"
+                        value={syncStartDate}
+                        onChange={(e) => setSyncStartDate(e.target.value)}
+                        onClick={(e) => { try { if (typeof (e.currentTarget as any).showPicker === 'function') (e.currentTarget as any).showPicker(); } catch (err) {} }}
+                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all font-mono relative cursor-pointer"
+                     />
+                  </div>
+
+                  {/* Tanggal Akhir */}
+                  <div className="relative">
+                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <CalendarIcon size={14} className="text-orange-400" />
+                        Tanggal Akhir
+                     </label>
+                     <input
+                        type="date"
+                        value={syncEndDate}
+                        onChange={(e) => setSyncEndDate(e.target.value)}
+                        onClick={(e) => { try { if (typeof (e.currentTarget as any).showPicker === 'function') (e.currentTarget as any).showPicker(); } catch (err) {} }}
+                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all font-mono relative cursor-pointer"
+                     />
+                  </div>
+
+                  {/* Filter Role */}
+                  <div>
+                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Filter size={14} className="text-orange-400" />
+                        Filter Role
+                     </label>
+                     <select
+                        value={syncRole}
+                        onChange={(e) => setSyncRole(e.target.value)}
+                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all"
+                     >
+                        <option value="SEMUA">SEMUA ROLE</option>
+                        <option value="CHECKER">CHECKER</option>
+                        <option value="PICKER">PICKER</option>
+                        <option value="PICKER_2">PICKER 2</option>
+                        <option value="PACKING">PACKING</option>
+                        <option value="PACKING_2">PACKING 2</option>
+                        <option value="SORTIR">SORTIR</option>
+                        <option value="SORTIR_BATCH">SORTIR BATCH</option>
+                        <option value="GUDANG">GUDANG</option>
+                        <option value="LOGISTIK">LOGISTIK</option>
+                        <option value="OJOL">OJOL</option>
+                        <option value="LEADER">LEADER</option>
+                        <option value="EKSPEDISI">EKSPEDISI</option>
+                        <option value="RETUR">RETUR</option>
+                     </select>
+                  </div>
+
+                  {/* Custom Firestore Collection */}
+                  <div>
+                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Database size={14} className="text-orange-400" />
+                        Collection Firestore
+                     </label>
+                     <input
+                        type="text"
+                        value={syncCollectionName}
+                        onChange={(e) => setSyncCollectionName(e.target.value)}
+                        placeholder="scanned_items"
+                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white font-mono placeholder:font-sans focus:outline-none focus:border-orange-500 transition-all"
+                     />
+                  </div>
+               </div>
+
+               {/* Action Buttons & Status Msg */}
+               <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 sm:gap-4 pt-3 border-t border-gray-800/80">
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                     {syncDirection === 'FS_TO_SB' ? (
+                        <>
+                           <button
+                              onClick={handleSyncFirestoreToSupabase}
+                              disabled={isSyncingFs || isVerifyingFs}
+                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              title="Sinkronisasi data Firestore ke Supabase VPS sekaligus"
+                           >
+                              {isSyncingFs ? (
+                                 <>
+                                    <Loader2 size={18} className="animate-spin" />
+                                    Menyinkronkan ke VPS...
+                                 </>
+                              ) : (
+                                 <>
+                                    <RefreshCw size={18} />
+                                    🚀 Mulai Sinkron Sekaligus (FS ➔ VPS)
+                                 </>
+                              )}
+                           </button>
+
+                           <button
+                              onClick={handleSyncFirestoreToSupabaseByDayRange}
+                              disabled={isSyncingFs || isVerifyingFs}
+                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              title="Sinkronisasi Firestore ke Supabase VPS per hari dengan Auto-Retry"
+                           >
+                              {isSyncingFs ? (
+                                 <>
+                                    <Loader2 size={18} className="animate-spin" />
+                                    Menyinkronkan Per Hari...
+                                 </>
+                              ) : (
+                                 <>
+                                    <CalendarIcon size={18} />
+                                    📅 Sinkron Rentang Per Hari (FS ➔ VPS)
+                                 </>
+                              )}
+                           </button>
+                        </>
+                     ) : (
+                        <>
+                           <button
+                              onClick={handleSyncSupabaseToFirestore}
+                              disabled={isSyncingFs || isVerifyingFs}
+                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              title="Sinkronisasi data Supabase ke Firestore sekaligus"
+                           >
+                              {isSyncingFs ? (
+                                 <>
+                                    <Loader2 size={18} className="animate-spin" />
+                                    Menyinkronkan ke Firestore...
+                                 </>
+                              ) : (
+                                 <>
+                                    <RefreshCw size={18} />
+                                    🚀 Mulai Sinkron Sekaligus (VPS ➔ FS)
+                                 </>
+                              )}
+                           </button>
+
+                           <button
+                              onClick={handleSyncSupabaseToFirestoreByDayRange}
+                              disabled={isSyncingFs || isVerifyingFs}
+                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              title="Sinkronisasi Supabase ke Firestore per hari dengan Auto-Retry"
+                           >
+                              {isSyncingFs ? (
+                                 <>
+                                    <Loader2 size={18} className="animate-spin" />
+                                    Menyinkronkan Per Hari...
+                                 </>
+                              ) : (
+                                 <>
+                                    <CalendarIcon size={18} />
+                                    📅 Sinkron Rentang Per Hari (VPS ➔ FS)
+                                 </>
+                              )}
+                           </button>
+                        </>
+                     )}
+
+                     <button
+                        onClick={() => handleVerifyAndMatchData()}
+                        disabled={isSyncingFs || isVerifyingFs}
+                        className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white font-bold rounded-xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                        title="Verifikasi & Bandingkan Data Supabase VPS vs Firestore"
+                     >
+                        {isVerifyingFs ? (
+                           <>
+                              <Loader2 size={18} className="animate-spin" />
+                              Memeriksa Data...
+                           </>
+                        ) : (
+                           <>
+                              <Search size={18} />
+                              🔍 Cek & Match Data
+                           </>
+                        )}
+                     </button>
+                  </div>
+
+                  {syncStatusMsgFs && (
+                     <div className="text-xs font-medium text-gray-300 bg-black/40 px-3.5 py-2 rounded-lg border border-gray-800 max-w-full truncate text-center sm:text-left">
+                        {syncStatusMsgFs}
+                     </div>
+                  )}
+               </div>
+
+               {/* Visual Progress Bar Section */}
+               {(isSyncingFs || syncTotalCountFs > 0) && (
+                  <div className="mt-4 sm:mt-5 p-3.5 sm:p-4 bg-black/40 border border-orange-500/20 rounded-xl space-y-3">
+                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs font-bold gap-1 sm:gap-2">
+                        <div className="flex items-center gap-2 text-orange-400">
+                           <RefreshCw size={14} className={isSyncingFs ? "animate-spin" : ""} />
+                           <span>Progress Sinkronisasi Batch</span>
+                           {syncBatchTotalFs > 0 && (
+                              <span className="text-gray-400 font-normal">
+                                 (Batch {syncBatchCurrentFs} dari {syncBatchTotalFs})
+                              </span>
+                           )}
+                        </div>
+                        <div className="flex items-center gap-3 font-mono">
+                           <span className="text-gray-300">
+                              {syncProcessedCountFs} / {syncTotalCountFs} Data
+                           </span>
+                           <span className="text-amber-400 font-extrabold text-sm">{syncProgressFs}%</span>
+                        </div>
+                     </div>
+
+                     {/* Progress Bar Container */}
+                     <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden p-0.5 border border-gray-700/60">
+                        <div
+                           className={`h-full rounded-full transition-all duration-300 relative overflow-hidden shadow-sm ${
+                              syncDirection === 'FS_TO_SB'
+                                 ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-300'
+                                 : 'bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-300'
+                           }`}
+                           style={{ width: `${syncProgressFs}%` }}
+                        >
+                           {isSyncingFs && (
+                              <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                           )}
+                        </div>
+                     </div>
+
+                     {/* Live Role Breakdown Summary */}
+                     {Object.keys(syncRoleBreakdownFs).length > 0 && (
+                        <div className="mt-3 p-3 bg-gray-900/90 border border-gray-700/80 rounded-xl">
+                           <div className="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2 flex items-center justify-between">
+                              <span>📊 Rincian Live Per Role ({syncStartDate === syncEndDate ? syncStartDate : `${syncStartDate} s/d ${syncEndDate}`}):</span>
+                              <span className="text-amber-400 text-xs font-bold">Total: {syncTotalCountFs.toLocaleString()} Data</span>
+                           </div>
+                           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                              {Object.entries(syncRoleBreakdownFs).map(([roleName, count]) => (
+                                 <div key={roleName} className="bg-black/60 p-2 rounded-lg border border-gray-800 text-center">
+                                    <span className="text-[10px] text-gray-400 font-bold block truncate">
+                                       {(roleName === 'PACKING' || roleName === 'PACKING_2') && '📦 '}
+                                       {roleName === 'CHECKER' && '📋 '}
+                                       {roleName === 'PICKER' && '🛒 '}
+                                       {roleName === 'OJOL' && '🛵 '}
+                                       {roleName === 'GUDANG' && '🏭 '}
+                                       {roleName}
+                                    </span>
+                                    <span className="text-sm font-black text-amber-300 font-mono">{count.toLocaleString()}</span>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                     )}
+                  </div>
+               )}
+            </div>
+         </div>
+      );
+   };
+
    // Sidebar Helper
    const handleSidebarSelect = useCallback((view: AdminView) => {
       setActiveView(view);
@@ -15900,6 +16614,7 @@ if (filterPackingShift !== 'ALL') {
 
                         {activeView === 'SEARCH_ALL' && (
                            <div className="w-full h-full min-h-full bg-white dark:bg-gray-800 flex flex-col overflow-y-auto">
+                              {renderSyncDataPanel()}
                               {/* Hero Search Section */}
                               <div className="p-4 sm:p-6 border-b border-gray-200/80 dark:border-gray-700/80 bg-gradient-to-b from-indigo-50/50 via-white to-gray-50/30 dark:from-indigo-950/20 dark:via-gray-800 dark:to-gray-900/30 shrink-0">
                                  <div className="max-w-7xl mx-auto w-full space-y-4">
@@ -15924,7 +16639,21 @@ if (filterPackingShift !== 'ALL') {
                                        </div>
 
                                        {/* Layout Switcher */}
-                                       <div className="flex items-center bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl border border-gray-200 dark:border-gray-600 self-end sm:self-auto h-10">
+                                       <div className="flex items-center bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl border border-gray-200 dark:border-gray-600 self-end sm:self-auto h-10 gap-1">
+                                          <button
+                                             type="button"
+                                             onClick={() => setShowFsSyncDevMode(prev => !prev)}
+                                             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                                                showFsSyncDevMode
+                                                   ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-orange-400 shadow-sm shadow-orange-500/20'
+                                                   : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:border-orange-400'
+                                             }`}
+                                             title="Buka / Tutup Panel Sinkronisasi Data Firestore ⇄ Supabase VPS"
+                                          >
+                                             <RefreshCw size={13} className={isSyncingFs ? 'animate-spin' : ''} />
+                                             <span className="font-bold">Sinkronisasi Data</span>
+                                          </button>
+                                          <div className="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-0.5" />
                                           <button
                                              type="button"
                                              onClick={() => setGlobalSearchViewLayout('AUTO')}
@@ -16213,250 +16942,7 @@ if (filterPackingShift !== 'ALL') {
 
                         {activeView === 'SEARCH_ALL_FIRESTORE' && (
                            <div className="w-full h-full min-h-full bg-white dark:bg-gray-800 flex flex-col overflow-y-auto">
-                              {/* SECRET DEVMODE SYNC PANEL (SUPABASE ➔ FIRESTORE) */}
-                              {(showFsSyncDevMode || isDevMode || showSecretMenu) && (
-                                 <div className="p-4 sm:p-6 pb-0 max-w-7xl mx-auto w-full shrink-0">
-                                    <div className="p-4 sm:p-6 bg-gradient-to-br from-slate-900 via-gray-900 to-orange-950 text-white rounded-2xl shadow-2xl border border-orange-500/30 relative overflow-hidden transition-all">
-                                       {/* Decorative Background */}
-                                       <div className="absolute -right-12 -top-12 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
-                                       <div className="absolute -left-12 -bottom-12 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
-                                       {/* Header Badge */}
-                                       <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-5 border-b border-gray-800/80 pb-4">
-                                          <div className="flex items-center gap-3">
-                                             <div className="p-2 sm:p-2.5 bg-gradient-to-tr from-orange-600 to-amber-500 text-white rounded-xl shadow-lg shadow-orange-500/30 shrink-0">
-                                                <Zap size={20} className="animate-pulse sm:w-5 sm:h-5" />
-                                             </div>
-                                             <div>
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                   <h4 className="text-base sm:text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-yellow-200">
-                                                      ⚡️ Fitur Rahasia Devmode: Sinkron Supabase ➔ Firestore
-                                                   </h4>
-                                                   <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/40">
-                                                      SECRET DEVMODE
-                                                   </span>
-                                                </div>
-                                                <p className="text-xs text-gray-400 mt-0.5">
-                                                   Sinkronisasi data dari <span className="text-emerald-400 font-semibold">Supabase</span> ke <span className="text-amber-400 font-semibold">Firestore</span> (Multi-Batch Paralel 450 data per batch — super cepat & aman).
-                                                </p>
-                                             </div>
-                                          </div>
-
-                                          <button
-                                             onClick={() => setShowFsSyncDevMode(false)}
-                                             className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all ml-auto sm:ml-0"
-                                             title="Tutup Panel Rahasia"
-                                          >
-                                             <X size={18} />
-                                          </button>
-                                       </div>
-
-                                       {/* Form Inputs Grid */}
-                                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-5">
-                                          {/* Tanggal Mulai */}
-                                          <div className="relative">
-                                             <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                                                <CalendarIcon size={14} className="text-orange-400" />
-                                                Tanggal Mulai
-                                             </label>
-                                             <input
-                                                type="date"
-                                                value={syncStartDate}
-                                                onChange={(e) => setSyncStartDate(e.target.value)}
-                                                onClick={(e) => { try { if (typeof (e.currentTarget as any).showPicker === 'function') (e.currentTarget as any).showPicker(); } catch (err) {} }}
-                                                className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all font-mono relative cursor-pointer"
-                                             />
-                                          </div>
-
-                                          {/* Tanggal Akhir */}
-                                          <div className="relative">
-                                             <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                                                <CalendarIcon size={14} className="text-orange-400" />
-                                                Tanggal Akhir
-                                             </label>
-                                             <input
-                                                type="date"
-                                                value={syncEndDate}
-                                                onChange={(e) => setSyncEndDate(e.target.value)}
-                                                onClick={(e) => { try { if (typeof (e.currentTarget as any).showPicker === 'function') (e.currentTarget as any).showPicker(); } catch (err) {} }}
-                                                className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all font-mono relative cursor-pointer"
-                                             />
-                                          </div>
-
-                                          {/* Filter Role */}
-                                          <div>
-                                             <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                                                <Filter size={14} className="text-orange-400" />
-                                                Filter Role
-                                             </label>
-                                             <select
-                                                 value={syncRole}
-                                                 onChange={(e) => setSyncRole(e.target.value)}
-                                                 className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all"
-                                              >
-                                                 <option value="SEMUA">SEMUA ROLE</option>
-                                                 <option value="CHECKER">CHECKER</option>
-                                                 <option value="PICKER">PICKER</option>
-                                                 <option value="PICKER_2">PICKER 2</option>
-                                                 <option value="PACKING">PACKING</option>
-                                                 <option value="PACKING_2">PACKING 2</option>
-                                                 <option value="SORTIR">SORTIR</option>
-                                                 <option value="SORTIR_BATCH">SORTIR BATCH</option>
-                                                 <option value="GUDANG">GUDANG</option>
-                                                 <option value="LOGISTIK">LOGISTIK</option>
-                                                 <option value="OJOL">OJOL</option>
-                                                 <option value="LEADER">LEADER</option>
-                                                 <option value="EKSPEDISI">EKSPEDISI</option>
-                                                 <option value="RETUR">RETUR</option>
-                                              </select>
-                                          </div>
-
-                                          {/* Custom Firestore Collection */}
-                                          <div>
-                                             <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                                                <Database size={14} className="text-orange-400" />
-                                                Collection Firestore
-                                             </label>
-                                             <input
-                                                type="text"
-                                                value={syncCollectionName}
-                                                onChange={(e) => setSyncCollectionName(e.target.value)}
-                                                placeholder="scanned_items"
-                                                className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white font-mono placeholder:font-sans focus:outline-none focus:border-orange-500 transition-all"
-                                             />
-                                          </div>
-                                       </div>
-
-                                        {/* Action Buttons & Status Msg */}
-                                        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 sm:gap-4 pt-3 border-t border-gray-800/80">
-                                           <div className="flex flex-col sm:flex-row items-center gap-3">
-                                              <button
-                                                 onClick={handleSyncSupabaseToFirestore}
-                                                 disabled={isSyncingFs || isVerifyingFs}
-                                                 className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0"
-                                                 title="Sinkronisasi data sekaligus"
-                                              >
-                                                 {isSyncingFs ? (
-                                                    <>
-                                                       <Loader2 size={18} className="animate-spin" />
-                                                       Menyinkronkan...
-                                                    </>
-                                                 ) : (
-                                                    <>
-                                                       <RefreshCw size={18} />
-                                                       🚀 Mulai Sinkronisasi Sekaligus
-                                                    </>
-                                                 )}
-                                              </button>
-
-                                              <button
-                                                 onClick={handleSyncSupabaseToFirestoreByDayRange}
-                                                 disabled={isSyncingFs || isVerifyingFs}
-                                                 className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0"
-                                                 title="Sinkronisasi per hari dengan Auto-Retry jika timeout"
-                                              >
-                                                 {isSyncingFs ? (
-                                                    <>
-                                                       <Loader2 size={18} className="animate-spin" />
-                                                       Menyinkronkan Per Hari...
-                                                    </>
-                                                 ) : (
-                                                    <>
-                                                       <CalendarIcon size={18} />
-                                                       📅 Sinkronisasi Rentang Per Hari (Auto-Retry)
-                                                    </>
-                                                 )}
-                                              </button>
-
-                                              <button
-                                                 onClick={() => handleVerifyAndMatchData()}
-                                                 disabled={isSyncingFs || isVerifyingFs}
-                                                 className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0"
-                                                 title="Verifikasi & Match Rincian Data Supabase vs Firestore"
-                                              >
-                                                 {isVerifyingFs ? (
-                                                    <>
-                                                       <Loader2 size={18} className="animate-spin" />
-                                                       Memeriksa Data...
-                                                    </>
-                                                 ) : (
-                                                    <>
-                                                       <Search size={18} />
-                                                       🔍 Cek & Match Data Supabase vs Firestore
-                                                    </>
-                                                 )}
-                                              </button>
-                                           </div>
-
-                                           {syncStatusMsgFs && (
-                                              <div className="text-xs font-medium text-gray-300 bg-black/40 px-3.5 py-2 rounded-lg border border-gray-800 max-w-full truncate text-center sm:text-left">
-                                                 {syncStatusMsgFs}
-                                              </div>
-                                           )}
-                                        </div>
-
-                                        {/* Visual Progress Bar Section */}
-                                       {(isSyncingFs || syncTotalCountFs > 0) && (
-                                          <div className="mt-4 sm:mt-5 p-3.5 sm:p-4 bg-black/40 border border-orange-500/20 rounded-xl space-y-3">
-                                             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs font-bold gap-1 sm:gap-2">
-                                                <div className="flex items-center gap-2 text-orange-400">
-                                                   <RefreshCw size={14} className={isSyncingFs ? "animate-spin" : ""} />
-                                                   <span>Progress Sinkronisasi Batch</span>
-                                                   {syncBatchTotalFs > 0 && (
-                                                      <span className="text-gray-400 font-normal">
-                                                         (Batch {syncBatchCurrentFs} dari {syncBatchTotalFs})
-                                                      </span>
-                                                   )}
-                                                </div>
-                                                <div className="flex items-center gap-3 font-mono">
-                                                   <span className="text-gray-300">
-                                                      {syncProcessedCountFs} / {syncTotalCountFs} Data
-                                                   </span>
-                                                   <span className="text-amber-400 font-extrabold text-sm">{syncProgressFs}%</span>
-                                                </div>
-                                             </div>
-
-                                             {/* Progress Bar Container */}
-                                             <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden p-0.5 border border-gray-700/60">
-                                                <div
-                                                   className="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-300 rounded-full transition-all duration-300 relative overflow-hidden shadow-sm"
-                                                   style={{ width: `${syncProgressFs}%` }}
-                                                >
-                                                   {isSyncingFs && (
-                                                      <div className="absolute inset-0 bg-white/20 animate-pulse" />
-                                                   )}
-                                                </div>
-                                             </div>
-
-                                             {/* Live Role Breakdown Summary */}
-                                             {Object.keys(syncRoleBreakdownFs).length > 0 && (
-                                                <div className="mt-3 p-3 bg-gray-900/90 border border-gray-700/80 rounded-xl">
-                                                   <div className="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2 flex items-center justify-between">
-                                                      <span>📊 Rincian Live Per Role ({syncStartDate === syncEndDate ? syncStartDate : `${syncStartDate} s/d ${syncEndDate}`}):</span>
-                                                      <span className="text-amber-400 text-xs font-bold">Total: {syncTotalCountFs.toLocaleString()} Data</span>
-                                                   </div>
-                                                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                                                      {Object.entries(syncRoleBreakdownFs).map(([roleName, count]) => (
-                                                         <div key={roleName} className="bg-black/60 p-2 rounded-lg border border-gray-800 text-center">
-                                                            <span className="text-[10px] text-gray-400 font-bold block truncate">
-                                                               {(roleName === 'PACKING' || roleName === 'PACKING_2') && '📦 '}
-                                                               {roleName === 'CHECKER' && '📋 '}
-                                                               {roleName === 'PICKER' && '🛒 '}
-                                                               {roleName === 'OJOL' && '🛵 '}
-                                                               {roleName === 'GUDANG' && '🏭 '}
-                                                               {roleName}
-                                                            </span>
-                                                            <span className="text-sm font-black text-amber-300 font-mono">{count.toLocaleString()}</span>
-                                                         </div>
-                                                      ))}
-                                                   </div>
-                                                </div>
-                                             )}
-                                          </div>
-                                       )}
-                                    </div>
-                                 </div>
-                              )}
+                              {renderSyncDataPanel()}
 
                               {/* HEADER & SEARCH TOOLBAR */}
                               <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/50 shrink-0">
