@@ -2872,6 +2872,85 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
    };
 
+   // Helper untuk upsert data ke Supabase VPS dengan aman:
+   // 1. In-batch deduplication untuk non-picker roles
+   // 2. Batch upsert dengan onConflict: 'id', ignoreDuplicates: true
+   // 3. Fallback per-item jika terbentur unique constraint (misal unique_scan_global_role_menu atau code 23505/409)
+   const safeUpsertToSupabaseScannedItems = async (items: any[]) => {
+      if (!items || items.length === 0) return;
+
+      // In-batch deduplication untuk role non-picker agar tidak bentrok dalam 1 batch
+      const seen = new Set<string>();
+      const dedupedItems: any[] = [];
+      for (const item of items) {
+         const isMultiAllowed = ['PICKER', 'PICKER_2', 'SORTIR_BATCH'].includes((item.role || '').toUpperCase());
+         if (isMultiAllowed) {
+            dedupedItems.push(item);
+         } else {
+            const key = `${(item.barcode || '').trim().toUpperCase()}|${(item.role || '').toUpperCase()}|${(item.menu_context || 'DEFAULT').toUpperCase()}`;
+            if (!seen.has(key)) {
+               seen.add(key);
+               dedupedItems.push(item);
+            }
+         }
+      }
+
+      if (dedupedItems.length === 0) return;
+
+      const isDuplicateConstraintError = (err: any) => {
+         const msg = String(err?.message || '');
+         const code = String(err?.code || '');
+         return code === '23505' || code === '409' || msg.includes('unique_scan_global_role_menu') || msg.includes('duplicate key');
+      };
+
+      // Coba upsert batch sekaligus (onConflict: 'id', ignoreDuplicates: true)
+      let batchSuccess = false;
+      let lastErr: any = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+         const { error } = await supabase
+            .from('scanned_items')
+            .upsert(dedupedItems, { onConflict: 'id', ignoreDuplicates: true });
+
+         if (!error) {
+            batchSuccess = true;
+            break;
+         }
+
+         lastErr = error;
+
+         // Jika error duplicate constraint, retry batch tidak akan mengubah hasil -> langsung ke fallback per-item
+         if (isDuplicateConstraintError(error)) {
+            break;
+         }
+
+         // Error sementara (network / transient) -> tunggu dan coba lagi
+         console.warn(`[Supabase Upsert Retry ${attempt}/3]:`, error.message);
+         if (attempt < 3) {
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+         }
+      }
+
+      if (batchSuccess) return;
+
+      // Fallback: jika terjadi unique constraint conflict (misal unique_scan_global_role_menu),
+      // proses row-by-row dan lewati (skip) yang duplikat
+      if (isDuplicateConstraintError(lastErr)) {
+         for (const singleItem of dedupedItems) {
+            const { error: singleErr } = await supabase
+               .from('scanned_items')
+               .upsert([singleItem], { onConflict: 'id', ignoreDuplicates: true });
+
+            if (singleErr && !isDuplicateConstraintError(singleErr)) {
+               throw new Error(`Gagal menyimpan resi ${singleItem.barcode} (${singleItem.role}): ${singleErr.message}`);
+            }
+         }
+         return;
+      }
+
+      throw new Error(lastErr?.message || 'Gagal menyimpan ke Supabase VPS');
+   };
+
    // 13a. Sinkronisasi Data Firestore ➔ Supabase VPS Sekaligus
    const handleSyncFirestoreToSupabase = async () => {
       if (isSyncingFs) return;
@@ -2944,27 +3023,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             setSyncRoleBreakdownFs({ ...roleBreakdown });
 
-            // Upsert ke Supabase dengan auto-retry
-            let upsertSuccess = false;
-            let lastError: any = null;
-            for (let attempt = 1; attempt <= 3; attempt++) {
-               const { error: sbError } = await supabase
-                  .from('scanned_items')
-                  .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
-
-               if (!sbError) {
-                  upsertSuccess = true;
-                  break;
-               }
-               lastError = sbError;
-               console.warn(`[Supabase Upsert Retry ${attempt}/3] Batch ${b + 1}:`, sbError.message);
-               if (attempt < 3) {
-                  await new Promise(r => setTimeout(r, 1000 * attempt));
-               }
-            }
-
-            if (!upsertSuccess) {
-               throw new Error(`Gagal menyimpan batch ${b + 1} ke Supabase VPS: ${lastError?.message || 'Unknown error'}`);
+            try {
+               await safeUpsertToSupabaseScannedItems(batchItems);
+            } catch (batchErr: any) {
+               throw new Error(`Gagal menyimpan batch ${b + 1} ke Supabase VPS: ${batchErr.message || 'Unknown error'}`);
             }
 
             grandProcessed += chunkDocs.length;
@@ -3079,27 +3141,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                      setSyncRoleBreakdownFs({ ...roleBreakdown });
 
-                     // Upsert ke Supabase dengan auto-retry
-                     let upsertSuccess = false;
-                     let lastError: any = null;
-                     for (let attempt = 1; attempt <= 3; attempt++) {
-                        const { error: sbError } = await supabase
-                           .from('scanned_items')
-                           .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
-
-                        if (!sbError) {
-                           upsertSuccess = true;
-                           break;
-                        }
-                        lastError = sbError;
-                        console.warn(`[Supabase Upsert Retry ${attempt}/3] Chunk ${c + 1} (${dateInfo.displayStr}):`, sbError.message);
-                        if (attempt < 3) {
-                           await new Promise(r => setTimeout(r, 1000 * attempt));
-                        }
-                     }
-
-                     if (!upsertSuccess) {
-                        throw new Error(`Gagal simpan batch tanggal ${dateInfo.displayStr}: ${lastError?.message || 'Unknown error'}`);
+                     try {
+                        await safeUpsertToSupabaseScannedItems(batchItems);
+                     } catch (chunkErr: any) {
+                        throw new Error(`Gagal simpan batch tanggal ${dateInfo.displayStr}: ${chunkErr.message || 'Unknown error'}`);
                      }
                   }
                }
