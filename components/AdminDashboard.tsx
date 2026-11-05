@@ -2923,7 +2923,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          }
 
          const roleBreakdown: Record<string, number> = {};
-         const BATCH_SIZE = 500;
+         const BATCH_SIZE = 100;
          const numBatches = Math.ceil(totalDocs / BATCH_SIZE);
          setSyncBatchTotalFs(numBatches);
 
@@ -2944,12 +2944,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             setSyncRoleBreakdownFs({ ...roleBreakdown });
 
-            const { error: sbError } = await supabase
-               .from('scanned_items')
-               .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
+            // Upsert ke Supabase dengan auto-retry
+            let upsertSuccess = false;
+            let lastError: any = null;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+               const { error: sbError } = await supabase
+                  .from('scanned_items')
+                  .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
 
-            if (sbError) {
-               throw new Error(`Gagal menyimpan batch ${b + 1} ke Supabase VPS: ${sbError.message}`);
+               if (!sbError) {
+                  upsertSuccess = true;
+                  break;
+               }
+               lastError = sbError;
+               console.warn(`[Supabase Upsert Retry ${attempt}/3] Batch ${b + 1}:`, sbError.message);
+               if (attempt < 3) {
+                  await new Promise(r => setTimeout(r, 1000 * attempt));
+               }
+            }
+
+            if (!upsertSuccess) {
+               throw new Error(`Gagal menyimpan batch ${b + 1} ke Supabase VPS: ${lastError?.message || 'Unknown error'}`);
             }
 
             grandProcessed += chunkDocs.length;
@@ -3050,7 +3065,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                }
 
                if (docsForDay.length > 0) {
-                  const BATCH_SIZE = 500;
+                  const BATCH_SIZE = 100;
                   const numChunks = Math.ceil(docsForDay.length / BATCH_SIZE);
 
                   for (let c = 0; c < numChunks; c++) {
@@ -3064,12 +3079,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                      setSyncRoleBreakdownFs({ ...roleBreakdown });
 
-                     const { error: sbError } = await supabase
-                        .from('scanned_items')
-                        .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
+                     // Upsert ke Supabase dengan auto-retry
+                     let upsertSuccess = false;
+                     let lastError: any = null;
+                     for (let attempt = 1; attempt <= 3; attempt++) {
+                        const { error: sbError } = await supabase
+                           .from('scanned_items')
+                           .upsert(batchItems, { onConflict: 'id', ignoreDuplicates: true });
 
-                     if (sbError) {
-                        throw new Error(`Gagal simpan batch tanggal ${dateInfo.displayStr}: ${sbError.message}`);
+                        if (!sbError) {
+                           upsertSuccess = true;
+                           break;
+                        }
+                        lastError = sbError;
+                        console.warn(`[Supabase Upsert Retry ${attempt}/3] Chunk ${c + 1} (${dateInfo.displayStr}):`, sbError.message);
+                        if (attempt < 3) {
+                           await new Promise(r => setTimeout(r, 1000 * attempt));
+                        }
+                     }
+
+                     if (!upsertSuccess) {
+                        throw new Error(`Gagal simpan batch tanggal ${dateInfo.displayStr}: ${lastError?.message || 'Unknown error'}`);
                      }
                   }
                }
