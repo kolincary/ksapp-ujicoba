@@ -22,7 +22,9 @@ import { GineeOrdersView } from './GineeOrdersView';
 import { GineeScanKirimView } from './GineeScanKirimView';
 import { SupabaseHotSwapView } from './SupabaseHotSwapView';
 import { UserMonitoringView } from './UserMonitoringView';
+import { VpsCliTutorialView } from './VpsCliTutorialView';
 import {
+   Terminal,
    Calendar,
    Sparkles,
    Wrench,
@@ -173,6 +175,7 @@ const SIDEBAR_MENUS_LIST = [
   { id: 'ACCESS', label: 'Access Control' },
   { id: 'PINS', label: 'PIN Management' },
   { id: 'PROFILE_CONFIG', label: 'Pengaturan Profil' },
+  { id: 'VPS_CLI_TUTORIAL', label: 'Panduan VPS (CMD/CLI)' },
   { id: 'SUPABASE_CONFIG', label: 'DB Config' },
   { id: 'SUPABASE_MANAGER', label: 'Supabase Manager' },
   { id: 'RUNNING_TEXT_MANAGER', label: 'Pengumuman Manager' },
@@ -343,6 +346,7 @@ const VIEW_PERMISSIONS: Partial<Record<AdminView, string | string[]>> = {
    'RESI_FORMATTER': ['manage_database', 'view_dashboard', 'manage_batches'],
    'PESANAN_90_HARI': ['view_pesanan_90_hari', 'view_dashboard'],
    'SCAN_DAN_KIRIM': ['view_scan_dan_kirim', 'view_pesanan_90_hari', 'view_dashboard'],
+   'VPS_CLI_TUTORIAL': '',
 };
 
 // --- HELPERS ---
@@ -13300,6 +13304,7 @@ if (filterPackingShift !== 'ALL') {
                      <SidebarItem hiddenMenus={hiddenMenus} view="ACCESS" icon={Shield} label="Access Control" requiredPerm="manage_access" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      <SidebarItem hiddenMenus={hiddenMenus} view="PINS" icon={KeyRound} label="PIN Management" requiredPerm="manage_pins" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      <SidebarItem hiddenMenus={hiddenMenus} view="PROFILE_CONFIG" icon={SlidersHorizontal} label="Pengaturan Profil" requiredPerm="view_profile_config" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
+                     <SidebarItem hiddenMenus={hiddenMenus} view="VPS_CLI_TUTORIAL" icon={Terminal} label="Panduan VPS (CMD/CLI)" requiredPerm="" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      {showFakeReportMenu && (
                         <SidebarSection title="Old Systems">
                            <SidebarItem hiddenMenus={currentAdmin?.username === 'Tamu' ? ['BATCH_DATA', 'BATCH_DATA_3'] : hiddenMenus} view="BATCH_DATA" icon={Database} label="Batch Management Old" requiredPerm="manage_batches" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
@@ -16996,6 +17001,7 @@ if (filterPackingShift !== 'ALL') {
                                        { view: 'ACCESS', label: 'Access Control' },
                                        { view: 'PINS', label: 'PIN Management' },
                                        { view: 'PROFILE_CONFIG', label: 'Pengaturan Profil' },
+                                       { view: 'VPS_CLI_TUTORIAL', label: 'Panduan VPS (CMD/CLI)' },
                                        { view: 'BATCH_DATA', label: 'Batch Management Old' },
                                        { view: 'SUPABASE_CONFIG', label: 'DB Config' },
                                        { view: 'SUPABASE_MANAGER', label: 'Supabase Manager' },
@@ -17343,6 +17349,10 @@ if (filterPackingShift !== 'ALL') {
                               </div>
                            );
                         })()}
+
+                        {activeView === 'VPS_CLI_TUTORIAL' && (
+                           <VpsCliTutorialView />
+                        )}
 
                         {activeView === 'SUPABASE_CONFIG' && (
                            <div className="w-full h-full bg-white dark:bg-gray-800 overflow-y-auto">
