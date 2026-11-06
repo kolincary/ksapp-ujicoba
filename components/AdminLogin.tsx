@@ -185,6 +185,11 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, onBack }) => 
     setError(null);
     setIsLoading(true);
 
+    const safetyTimeout = setTimeout(() => {
+      setIsLoading(false);
+      setError("Waktu koneksi habis. Silakan periksa jaringan dan coba lagi.");
+    }, 10000);
+
     try {
       const validateAndProceed = async (adminUser: AdminUser) => {
         const currentDevId = getDeviceId();
@@ -254,6 +259,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, onBack }) => 
       console.error("Admin Login Error:", err);
       setError(err.message || "Gagal masuk ke admin portal.");
     } finally {
+      clearTimeout(safetyTimeout);
       setIsLoading(false);
     }
   };

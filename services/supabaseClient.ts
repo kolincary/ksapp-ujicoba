@@ -93,7 +93,25 @@ export const getConfig = (): ActiveSupabaseConfig => {
 // Resilient fetch handler to intercept and auto-recover from 401 Unauthorized errors caused by expired user sessions
 const createCustomFetch = (validAnonKey: string, projectRef: string) => {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    let res = await fetch(input, init);
+    let controller: AbortController | null = null;
+    let timeoutId: any = null;
+    let customInit = init;
+
+    // Proteksi timeout 12 detik agar fetch tidak pernah menggantung UI browser
+    if (!init?.signal && typeof AbortController !== 'undefined') {
+      controller = new AbortController();
+      timeoutId = setTimeout(() => {
+        try { controller?.abort(); } catch (e) {}
+      }, 12000);
+      customInit = { ...init, signal: controller.signal };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(input, customInit);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
     if (res.status === 401) {
       console.warn('⚠️ Supabase 401 Unauthorized detected on:', typeof input === 'string' ? input : (input as any)?.url || 'request');
       const authHeader = (init?.headers as any)?.['Authorization'] || (init?.headers as any)?.['authorization'];
