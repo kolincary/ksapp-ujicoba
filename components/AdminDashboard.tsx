@@ -6421,66 +6421,89 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             const selectCols = (isLeader2 || isLeaderPending) ? 'leader_name, leader_profile' : 'employee_name, team_members';
 
-            // Hitung total scan untuk menentukan chunk pagination (cepat, HEAD request)
-            let countQuery = supabase
-               .from(effectiveTable)
-               .select('id', { count: 'exact', head: true })
-               .gte('timestamp', startMs)
-               .lte('timestamp', endMs);
-
-            if (effectiveRole !== 'ALL' && !isLeader2 && !isLeaderPending) {
-               countQuery = countQuery.eq('role', effectiveRole);
-            }
-            if (menuContext) {
-               countQuery = countQuery.eq('menu_context', menuContext);
-            }
-
-            const { count } = await countQuery;
-            if (isCancelled) return;
-
-            const totalCount = count || 0;
-            if (totalCount > 0) {
-               const chunkSize = 1000;
-               // Ambil sampai 50 chunk (50.000 data per hari) secara paralel
-               const numChunks = Math.min(50, Math.ceil(totalCount / chunkSize));
-               const chunkPromises = [];
-
-               for (let i = 0; i < numChunks; i++) {
-                  const from = i * chunkSize;
-                  const to = from + chunkSize - 1;
-                  let q = supabase
-                     .from(effectiveTable)
-                     .select(selectCols)
-                     .gte('timestamp', startMs)
-                     .lte('timestamp', endMs);
-
-                  if (effectiveRole !== 'ALL' && !isLeader2 && !isLeaderPending) {
-                     q = q.eq('role', effectiveRole);
+            // Optimasi Cepat: Gunakan PostgreSQL RPC get_active_staff khusus scanned_items (1 single instant call)
+            let rpcSuccess = false;
+            if (effectiveTable === 'scanned_items') {
+               try {
+                  const { data: rpcData, error: rpcErr } = await supabase.rpc('get_active_staff', {
+                     p_start: startMs,
+                     p_end: endMs,
+                     p_role: effectiveRole === 'ALL' ? null : effectiveRole,
+                     p_menu_context: menuContext || null
+                  });
+                  if (!rpcErr && Array.isArray(rpcData)) {
+                     rpcData.forEach((row: any) => {
+                        addStaffIfMatches(row.employee_name);
+                     });
+                     rpcSuccess = true;
                   }
-                  if (menuContext) {
-                     q = q.eq('menu_context', menuContext);
-                  }
-                  chunkPromises.push(q.range(from, to));
+               } catch (e) {
+                  console.warn("get_active_staff RPC error, falling back to chunk query:", e);
+               }
+            }
+
+            if (!rpcSuccess) {
+               // Hitung total scan untuk menentukan chunk pagination (cepat, HEAD request)
+               let countQuery = supabase
+                  .from(effectiveTable)
+                  .select('id', { count: 'exact', head: true })
+                  .gte('timestamp', startMs)
+                  .lte('timestamp', endMs);
+
+               if (effectiveRole !== 'ALL' && !isLeader2 && !isLeaderPending) {
+                  countQuery = countQuery.eq('role', effectiveRole);
+               }
+               if (menuContext) {
+                  countQuery = countQuery.eq('menu_context', menuContext);
                }
 
-               const results = await Promise.all(chunkPromises);
+               const { count } = await countQuery;
                if (isCancelled) return;
 
-               results.forEach(res => {
-                  if (res.data) {
-                     res.data.forEach((row: any) => {
-                        addStaffIfMatches(row.employee_name);
-                        addStaffIfMatches(row.leader_name);
-                        addStaffIfMatches(row.leader_profile);
-                        if (Array.isArray(row.team_members)) {
-                           row.team_members.forEach((m: any) => {
-                              const mName = typeof m === 'string' ? m : m?.name;
-                              addStaffIfMatches(mName);
-                           });
-                        }
-                     });
+               const totalCount = count || 0;
+               if (totalCount > 0) {
+                  const chunkSize = 1000;
+                  // Ambil sampai 50 chunk (50.000 data per hari) secara paralel
+                  const numChunks = Math.min(50, Math.ceil(totalCount / chunkSize));
+                  const chunkPromises = [];
+
+                  for (let i = 0; i < numChunks; i++) {
+                     const from = i * chunkSize;
+                     const to = from + chunkSize - 1;
+                     let q = supabase
+                        .from(effectiveTable)
+                        .select(selectCols)
+                        .gte('timestamp', startMs)
+                        .lte('timestamp', endMs);
+
+                     if (effectiveRole !== 'ALL' && !isLeader2 && !isLeaderPending) {
+                        q = q.eq('role', effectiveRole);
+                     }
+                     if (menuContext) {
+                        q = q.eq('menu_context', menuContext);
+                     }
+                     chunkPromises.push(q.range(from, to));
                   }
-               });
+
+                  const results = await Promise.all(chunkPromises);
+                  if (isCancelled) return;
+
+                  results.forEach(res => {
+                     if (res.data) {
+                        res.data.forEach((row: any) => {
+                           addStaffIfMatches(row.employee_name);
+                           addStaffIfMatches(row.leader_name);
+                           addStaffIfMatches(row.leader_profile);
+                           if (Array.isArray(row.team_members)) {
+                              row.team_members.forEach((m: any) => {
+                                 const mName = typeof m === 'string' ? m : m?.name;
+                                 addStaffIfMatches(mName);
+                              });
+                           }
+                        });
+                     }
+                  });
+               }
             }
 
             if (!isCancelled) {

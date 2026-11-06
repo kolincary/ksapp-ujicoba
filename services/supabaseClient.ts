@@ -3,7 +3,7 @@ import { db } from './firebaseClient';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 // Explicit Self-Hosted VPS Supabase credentials (HTTPS Tunnel & Direct IP fallback)
-export const VPS_URL = 'https://phd-meetings-aberdeen-jose.trycloudflare.com';
+export const VPS_URL = 'https://light-specialty-cadillac-successful.trycloudflare.com';
 export const VPS_DIRECT_IP_URL = 'http://103.52.114.209:8000';
 export const VPS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
 export const FALLBACK_KEY = VPS_KEY;
@@ -53,8 +53,10 @@ export const getConfig = (): ActiveSupabaseConfig => {
     keysToClean.forEach(k => {
       const val = localStorage.getItem(k);
       if (val) {
-        // Jika website berjalan di HTTPS (seperti ksapp-ujicoba.pages.dev), hapus semua URL http://
-        if (isHttps && val.startsWith('http://')) {
+        // Bersihkan tunnel lama yang sudah expired atau bukan tunnel aktif saat ini
+        if (val.includes('phd-meetings-aberdeen-jose') || (isHttps && val.includes('trycloudflare') && val !== VPS_URL)) {
+          localStorage.removeItem(k);
+        } else if (isHttps && val.startsWith('http://')) {
           localStorage.removeItem(k);
         } else if (!val.includes('103.52.114.209') && !val.includes('trycloudflare')) {
           localStorage.removeItem(k);
@@ -66,12 +68,14 @@ export const getConfig = (): ActiveSupabaseConfig => {
   let activeUrl = localStorage.getItem('active_supabase_url') || VPS_URL;
   let activeKey = localStorage.getItem('active_supabase_key') || VPS_KEY;
 
-  // Proteksi mutlak Mixed Content di browser HTTPS: otomatis alihkan ke VPS_URL HTTPS jika masih http://
-  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && activeUrl.startsWith('http://')) {
-    activeUrl = VPS_URL;
-    try {
-      localStorage.setItem('active_supabase_url', activeUrl);
-    } catch (e) {}
+  // Proteksi mutlak Mixed Content di browser HTTPS: otomatis alihkan ke VPS_URL HTTPS jika masih http:// atau tunnel lama
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    if (activeUrl.startsWith('http://') || activeUrl.includes('phd-meetings-aberdeen-jose') || (activeUrl.includes('trycloudflare') && activeUrl !== VPS_URL)) {
+      activeUrl = VPS_URL;
+      try {
+        localStorage.setItem('active_supabase_url', activeUrl);
+      } catch (e) {}
+    }
   }
 
   return {
