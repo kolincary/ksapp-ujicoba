@@ -4861,7 +4861,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (currentView === 'FAILED_HISTORY') return 'History: Failed Scans';
       if (currentView === 'SCAN_2_HISTORY') return 'History: Scan Leader 2';
       return 'History';
-   }
+   };
+
+   const currentTitle = useMemo(() => {
+      if (currentView === 'SCAN') return role === UserRole.GUDANG ? 'Potong Stok' : role;
+      if (currentView === 'SCAN_2') return 'Scan Leader';
+      if (currentView === 'LEADER_PENDING') return 'Pending Scan Leader (LT3)';
+      if (currentView === 'PENDING') return 'Pending Scans (LT3)';
+      if (currentView === 'READY') return 'Resi Ready (LT3)';
+      if (currentView === 'REPORT') return 'Gudang Report';
+      if (currentView === 'BUNDLING') return 'Scan Bundling';
+      if (currentView === 'CANCEL') return 'Scan Cancel (LT3)';
+      if (currentView === 'FAILED_HISTORY') return 'Failed Items';
+      if (currentView === 'LEADER_ORDERS') return 'Semua Orderan Leader';
+      if (currentView === 'LEADER_SUMMARY') return 'Rekap Total Leader';
+      if (isHistoryView) return getHistoryTitle();
+      if (currentView === 'SPECIAL_SCAN') return 'Special Scan';
+      return role || 'Dashboard';
+   }, [currentView, role, isHistoryView]);
+
+   const currentSubtitle = useMemo(() => {
+      return theme?.title || 'Warehouse Management System';
+   }, [theme]);
 
    const handleHistoryClick = () => {
       if (currentView === 'SCAN') {

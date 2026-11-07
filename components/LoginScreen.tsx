@@ -903,17 +903,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   if (activeTheme === 'tema_1') {
     return (
       <div className="h-full min-h-[100dvh] w-full flex flex-col lg:flex-row bg-[#f8fafc] dark:bg-gray-950 transition-colors duration-500 ease-in-out relative overflow-x-hidden overflow-y-auto lg:overflow-hidden select-none">
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="absolute inset-0 z-50 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md flex flex-col items-center justify-center animate-[fadeIn_0.3s_ease-out]">
-          <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Connecting System</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            Mohon tunggu sedang menghubungkan akun…
-          </p>
-        </div>
-      )}
-
       {/* ================= MOBILE & TABLET LAYOUT (< lg) ================= */}
       <div className="lg:hidden relative w-full min-h-[100dvh] flex flex-col justify-between items-center p-4 sm:p-6 overflow-hidden bg-gradient-to-b from-[#1d63ed] via-[#2563eb] to-[#0f172a] text-white">
         {/* Full Screen Background Graphic */}
@@ -976,7 +965,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               className="w-full h-11 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-medium rounded-full shadow-md hover:shadow-lg transition-all active:scale-[0.99] flex items-center justify-center gap-3 px-4 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
             >
               <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shrink-0 shadow-xs">
-                <GoogleLogo />
+                {loading ? (
+                  <Loader2 size={16} className="animate-spin text-[#1a73e8]" />
+                ) : (
+                  <GoogleLogo />
+                )}
               </div>
               <span className="text-xs sm:text-sm font-medium tracking-wide">
                 {loading ? 'Memeriksa akun…' : 'Login dengan Google'}
@@ -1097,7 +1090,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 className="mt-3.5 sm:mt-4 w-full h-11 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-medium rounded-full shadow-sm hover:shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 px-4 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
               >
                 <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shrink-0 shadow-xs">
-                  <GoogleLogo />
+                  {loading ? (
+                    <Loader2 size={16} className="animate-spin text-[#1a73e8]" />
+                  ) : (
+                    <GoogleLogo />
+                  )}
                 </div>
                 <span className="text-xs sm:text-sm font-medium tracking-wide">
                   {loading ? 'Memeriksa akun…' : 'Login dengan Google'}

@@ -20,9 +20,11 @@ import {
   ShieldCheck,
   Cloud,
   Crown,
-  ScanLine
+  ScanLine,
+  Palette,
+  Check
 } from 'lucide-react';
-import { getActiveLoginTheme, LoginThemeVariant } from '../services/themeSyncService';
+import { getActiveLoginTheme, saveUserLoginTheme, LoginThemeVariant } from '../services/themeSyncService';
 
 interface RoleSelectorProps {
   onSelectRole: (role: UserRole) => void;
@@ -300,7 +302,32 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Active Login Theme (defaults to 'tema_1')
-  const [activeTheme] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+  const [activeTheme, setActiveTheme] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+
+  const userKey = userEmail ? userEmail.toLowerCase().trim() : 'guest';
+  const THEME_CHOSEN_KEY = `kalindo_theme_chosen_${userKey}`;
+
+  // Modal selector muncul sekali setelah login jika belum pernah memilih tema
+  const [showThemeModal, setShowThemeModal] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(THEME_CHOSEN_KEY) !== 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [selectedThemeOption, setSelectedThemeOption] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+
+  const handleSelectTheme = (theme: LoginThemeVariant) => {
+    setSelectedThemeOption(theme);
+    setActiveTheme(theme);
+    saveUserLoginTheme(theme, userEmail);
+    try {
+      localStorage.setItem(THEME_CHOSEN_KEY, 'true');
+    } catch (e) {
+      console.warn('Storage error', e);
+    }
+    setShowThemeModal(false);
+  };
 
   // Auto-dismiss error after 3 seconds
   useEffect(() => {
@@ -435,6 +462,113 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 Ya, Keluar
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+
+  // Modal Pilih Tema (Muncul sekali setelah login ke halaman profil)
+  const renderThemeModal = () =>
+    showThemeModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" />
+        <div className="bg-white dark:bg-[#16191D] w-full max-w-md rounded-3xl shadow-2xl relative z-10 p-6 animate-[popIn_0.25s_ease-out] border border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+              <Palette size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold">Pilih Tampilan Desain</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Pilih gaya tampilan yang paling nyaman untuk Anda bekerja
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3.5">
+            {/* Opsi 1: Tema 1 */}
+            <div
+              onClick={() => handleSelectTheme('tema_1')}
+              className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                selectedThemeOption === 'tema_1'
+                  ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/30 shadow-md ring-2 ring-blue-500/20'
+                  : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 bg-gray-50/50 dark:bg-gray-800/40'
+              }`}
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                  T1
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm">Tema 1: Kalindo Klasik</span>
+                    <span className="text-[10px] bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-semibold">
+                      Standar
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Desain warna biru khas Kalindo dengan kartu peran horizontal
+                  </p>
+                </div>
+              </div>
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center border-2 shrink-0 ${
+                  selectedThemeOption === 'tema_1'
+                    ? 'border-blue-600 bg-blue-600 text-white'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
+              >
+                {selectedThemeOption === 'tema_1' && <Check size={14} strokeWidth={3} />}
+              </div>
+            </div>
+
+            {/* Opsi 2: Tema 2 */}
+            <div
+              onClick={() => handleSelectTheme('tema_2')}
+              className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                selectedThemeOption === 'tema_2'
+                  ? 'border-amber-500 bg-amber-50/40 dark:bg-amber-950/20 shadow-md ring-2 ring-amber-500/20'
+                  : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 bg-gray-50/50 dark:bg-gray-800/40'
+              }`}
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-xl bg-[#0E1B2E] border border-[#2B3A55] text-[#F2B705] flex items-center justify-center font-bold text-sm shadow-sm">
+                  T2
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm">Tema 2: Modern Warehouse</span>
+                    <span className="text-[10px] bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-semibold">
+                      Baru
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Desain industrial modern navy & emas dengan layout menu grid
+                  </p>
+                </div>
+              </div>
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center border-2 shrink-0 ${
+                  selectedThemeOption === 'tema_2'
+                    ? 'border-amber-500 bg-amber-500 text-white'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
+              >
+                {selectedThemeOption === 'tema_2' && <Check size={14} strokeWidth={3} />}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-2.5">
+            <button
+              onClick={() => handleSelectTheme(selectedThemeOption)}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl text-sm transition-all active:scale-[0.99] shadow-md shadow-blue-500/20 cursor-pointer"
+            >
+              Terapkan Pilihan
+            </button>
+            <p className="text-[11px] text-center text-gray-400 dark:text-gray-500">
+              💡 Pilihan tersimpan di profil Anda. Anda dapat mengganti tema kapan saja melalui menu <b>Pengaturan</b>.
+            </p>
           </div>
         </div>
       </div>
@@ -660,6 +794,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 
         {renderErrorToast()}
         {renderLogoutModal()}
+        {renderThemeModal()}
       </div>
     );
   }
@@ -861,6 +996,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 
       {renderErrorToast()}
       {renderLogoutModal()}
+      {renderThemeModal()}
 
       <style>{`
         @keyframes toastSlide {
