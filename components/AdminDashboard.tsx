@@ -4596,6 +4596,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )
    );
 
+   // Guard: VPS_CLI_TUTORIAL hanya dapat diakses saat devmodenew aktif
+   useEffect(() => {
+      if (activeView === 'VPS_CLI_TUTORIAL' && !isDevModeNew) {
+         setActiveView('PACKING_DATA');
+      }
+   }, [activeView, isDevModeNew]);
+
    // Status DevMode untuk Ringkasan Progress (Aktif untuk dev, admin, dan admin2)
    const isDevModeSummary = Boolean(
       isDevModeNew || 
@@ -14152,7 +14159,9 @@ if (filterPackingShift !== 'ALL') {
                      <SidebarItem hiddenMenus={hiddenMenus} view="ACCESS" icon={Shield} label="Access Control" requiredPerm="manage_access" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      <SidebarItem hiddenMenus={hiddenMenus} view="PINS" icon={KeyRound} label="PIN Management" requiredPerm="manage_pins" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
                      <SidebarItem hiddenMenus={hiddenMenus} view="PROFILE_CONFIG" icon={SlidersHorizontal} label="Pengaturan Profil" requiredPerm="view_profile_config" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
-                     <SidebarItem hiddenMenus={hiddenMenus} view="VPS_CLI_TUTORIAL" icon={Terminal} label="Panduan VPS (CMD/CLI)" requiredPerm="" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
+                     {isDevModeNew && (
+                        <SidebarItem hiddenMenus={hiddenMenus} view="VPS_CLI_TUTORIAL" icon={Terminal} label="Panduan VPS (CMD/CLI)" requiredPerm="" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
+                     )}
                      {showFakeReportMenu && (
                         <SidebarSection title="Old Systems">
                            <SidebarItem hiddenMenus={currentAdmin?.username === 'Tamu' ? ['BATCH_DATA', 'BATCH_DATA_3'] : hiddenMenus} view="BATCH_DATA" icon={Database} label="Batch Management Old" requiredPerm="manage_batches" activeView={activeView} hasPermission={hasPermission} onSelect={handleSidebarSelect} />
@@ -17430,6 +17439,9 @@ if (filterPackingShift !== 'ALL') {
                                        </h3>
                                        <p className="text-sm text-gray-500 mt-1">
                                           Jika diaktifkan, staff Picker/Ojol, Checker, dan Packing hanya bisa menscan resi yang sudah discan oleh tahap sebelumnya secara berurutan. Resi tidak terdaftar akan ditolak.
+                                          <span className="block mt-1 text-xs text-blue-600 dark:text-blue-400 font-semibold">
+                                             ⚡ <strong>Mode Cepat Otomatis:</strong> Jika profil <strong>Checker dinonaktifkan (OFF)</strong> di menu <em>Pengaturan Profil</em>, alur Packing akan otomatis langsung memvalidasi scan dari <strong>Picker / Ojol</strong>.
+                                          </span>
                                        </p>
                                     </div>
                                     <label className="relative inline-flex items-center cursor-pointer">
@@ -17510,7 +17522,7 @@ if (filterPackingShift !== 'ALL') {
                                     </p>
                                  </div>
                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-2">
-                                    {SIDEBAR_MENUS_LIST.map((menu) => {
+                                    {SIDEBAR_MENUS_LIST.filter(menu => menu.id !== 'VPS_CLI_TUTORIAL' || isDevModeNew).map((menu) => {
                                        const isHidden = hiddenMenus.includes(menu.id);
                                        return (
                                           <div key={menu.id} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
@@ -17621,7 +17633,7 @@ if (filterPackingShift !== 'ALL') {
                                        { view: 'ACCESS', label: 'Access Control' },
                                        { view: 'PINS', label: 'PIN Management' },
                                        { view: 'PROFILE_CONFIG', label: 'Pengaturan Profil' },
-                                       { view: 'VPS_CLI_TUTORIAL', label: 'Panduan VPS (CMD/CLI)' },
+                                       ...(isDevModeNew ? [{ view: 'VPS_CLI_TUTORIAL', label: 'Panduan VPS (CMD/CLI)' }] : []),
                                        { view: 'BATCH_DATA', label: 'Batch Management Old' },
                                        { view: 'SUPABASE_CONFIG', label: 'DB Config' },
                                        { view: 'SUPABASE_MANAGER', label: 'Supabase Manager' },
@@ -17970,7 +17982,7 @@ if (filterPackingShift !== 'ALL') {
                            );
                         })()}
 
-                        {activeView === 'VPS_CLI_TUTORIAL' && (
+                        {activeView === 'VPS_CLI_TUTORIAL' && isDevModeNew && (
                            <VpsCliTutorialView />
                         )}
 
