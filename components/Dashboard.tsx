@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { UserRole, ScannedItem, FailedItem } from '../types';
 import { ScanLine, Loader2, Settings, Search, Zap, CheckCircle2, Clock, Package, Monitor, User, AlertCircle, Menu, History, FileText, ArrowRight, X, ListOrdered, ArrowLeft, Wifi, WifiOff, CloudOff, CloudCog, Lock, Target, ChevronDown, ChevronUp, Calendar, AlertTriangle, RefreshCw, CheckSquare, Square, Trash2, ChevronRight, XCircle, Layers, Check, Save, Star, ShieldCheck, Truck, AlertOctagon } from 'lucide-react';
 import { ScannerModal } from './ScannerModal';

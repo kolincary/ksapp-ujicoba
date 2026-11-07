@@ -541,6 +541,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   const gRefTema2 = useRef<HTMLDivElement>(null);
   const tokenClientRef = useRef<any>(null);
+  const isGisInitializedRef = useRef<boolean>(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -650,6 +651,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
     const initGIS = () => {
       if (!window.google?.accounts || !activeClientId) return;
+      if (isGisInitializedRef.current) return;
+      isGisInitializedRef.current = true;
 
       // A. Setup ID Token / One Tap
       try {
