@@ -440,3 +440,19 @@ CREATE POLICY "Allow all operations on ginee_credentials" ON public.ginee_creden
 
 -- 10. REFRESH SCHEMA CACHE POSTGREST
 NOTIFY pgrst, 'reload schema';
+
+
+-- TRIGGER AUTO-PURGE PEMBERSIH OTOMATIS SAAT ADA BATCH PESANAN BARU
+CREATE OR REPLACE FUNCTION public.trigger_auto_purge_ginee()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM public.purge_expired_ginee_data(5);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_auto_purge_ginee ON public.ginee_orders;
+CREATE TRIGGER trg_auto_purge_ginee
+AFTER INSERT ON public.ginee_orders
+FOR EACH STATEMENT
+EXECUTE FUNCTION public.trigger_auto_purge_ginee();

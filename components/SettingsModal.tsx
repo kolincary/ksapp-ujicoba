@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Moon, Sun, Volume2, VolumeX, Monitor, AlignLeft, AlignCenter, AlignRight, ScanLine, Lock, KeyRound, ChevronRight, ArrowLeft, Delete, Loader2, CheckCircle, ShieldCheck, Repeat, Infinity, Music, Play, Smartphone, Gauge, Zap, CheckSquare, Save } from 'lucide-react';
+import { X, Moon, Sun, Volume2, VolumeX, Monitor, AlignLeft, AlignCenter, AlignRight, ScanLine, Lock, KeyRound, ChevronRight, ArrowLeft, Delete, Loader2, CheckCircle, ShieldCheck, Repeat, Infinity, Music, Play, Smartphone, Gauge, Zap, CheckSquare, Save, Palette, Check } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import { UserRole } from '../types';
+import { getActiveLoginTheme, saveUserLoginTheme, LoginThemeVariant } from '../services/themeSyncService';
 
 interface SettingsModalProps {
    isOpen: boolean;
@@ -134,15 +135,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
    const [supaNewUrl, setSupaNewUrl] = useState('');
    const [supaNewKey, setSupaNewKey] = useState('');
 
-   useEffect(() => {
-      if (!isOpen) return;
 
-      // Initialize Supabase Config State from localStorage
-      setSupaUrl(localStorage.getItem('supabase_url') || '');
-      setSupaKey(localStorage.getItem('supabase_key') || '');
-      setSupaNewUrl(localStorage.getItem('supabase_new_url') || '');
-      setSupaNewKey(localStorage.getItem('supabase_new_key') || '');
-   }, [isOpen]);
+   // Login Theme State (Tema 1 vs Tema 2)
+   const [loginTheme, setLoginTheme] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+   const [isSavingTheme, setIsSavingTheme] = useState(false);
 
    // Secret Dev Mode Toggle Counters
    const [versionClickCount, setVersionClickCount] = useState(0);
@@ -163,11 +159,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
    useEffect(() => {
       if (!isOpen) return;
-      // Reset state on open
-      return () => {
-         // Optional cleanup
-      };
+      // Refresh current login theme state
+      setLoginTheme(getActiveLoginTheme());
    }, [isOpen]);
+
+   const handleSelectLoginTheme = async (selected: LoginThemeVariant) => {
+      setLoginTheme(selected);
+      setIsSavingTheme(true);
+      await saveUserLoginTheme(selected, userEmail, employeeName);
+      setIsSavingTheme(false);
+   };
 
    const handleClose = () => {
       setView('MAIN');
@@ -349,6 +350,189 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const isNew = pinStep === 'ENTER_NEW';
       const isConfirm = pinStep === 'CONFIRM_NEW';
 
+      /* =========================================================================
+         TEMA 2: SPLIT CARD (MIDNIGHT NAVY + MINIMALIST KEYPAD)
+         ========================================================================= */
+      if (loginTheme === 'tema_2') {
+         const getTitle = () => {
+            if (isOld) return 'Verifikasi keamanan';
+            if (isNew) return 'PIN Baru';
+            return 'Konfirmasi PIN';
+         };
+
+         const getSubtitle = () => {
+            if (isOld) return 'Demi keamanan, masukkan PIN lama Anda terlebih dahulu.';
+            if (isNew) return 'Masukkan 6 digit kode PIN baru Anda.';
+            return 'Masukkan kembali PIN baru untuk konfirmasi.';
+         };
+
+         const getIcon = () => {
+            if (isOld) return <ShieldCheck size={26} />;
+            if (isNew) return <KeyRound size={26} />;
+            return <CheckCircle size={26} />;
+         };
+
+         return (
+            <div className="pm-root w-full flex flex-col md:flex-row h-full relative" data-theme={isDarkMode ? 'dark' : 'light'}>
+               <style>{`
+                  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+                  .pm-root {
+                     --surface: #ffffff;
+                     --text: #16191D;
+                     --muted: #5B636B;
+                     --line: #D5D9DC;
+                     --hover: #F3F4F2;
+                     --ring: #B8860B;
+                     font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+                  }
+                  .pm-root[data-theme='dark'] {
+                     --surface: #181B1F;
+                     --text: #ECEEF0;
+                     --muted: #9AA3AB;
+                     --line: #2B3036;
+                     --hover: #22262B;
+                     --ring: #F2B705;
+                  }
+                  .pm-surface { background: var(--surface); color: var(--text); }
+                  .pm-muted { color: var(--muted); }
+                  .pm-border { border-color: var(--line); }
+                  .pm-key { background: var(--surface); border-color: var(--line); color: var(--text); }
+                  .pm-key:hover:not(:disabled) { background: var(--hover); }
+                  .pm-dot-on { background: var(--text); border-color: var(--text); }
+                  .pm-focus:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+                  @keyframes pm-shake {
+                     0%, 100% { transform: translateX(0); }
+                     25%, 75% { transform: translateX(-6px); }
+                     50% { transform: translateX(6px); }
+                  }
+                  .pm-shake { animation: pm-shake 0.4s ease-in-out; }
+                  @media (prefers-reduced-motion: reduce) {
+                     .pm-shake { animation: none; }
+                  }
+               `}</style>
+
+               {/* SUCCESS TOAST OVERLAY */}
+               {showSuccessToast && (
+                  <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[70] animate-[slideDown_0.5s_ease-out] w-[90%] max-w-sm flex justify-center">
+                     <div className="bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border-2 border-white/20 shadow-emerald-500/30 backdrop-blur-md">
+                        <CheckCircle size={24} className="shrink-0" />
+                        <span className="font-bold text-lg">PIN Berhasil Diubah!</span>
+                     </div>
+                  </div>
+               )}
+
+               {/* Sisi Kiri: Identitas Keamanan Dark Navy */}
+               <div
+                  className="relative flex items-center gap-4 overflow-hidden bg-[#0E1B2E] p-5 text-white md:w-1/2 md:flex-col md:justify-center md:gap-0 md:p-10 md:text-center"
+                  style={{
+                     backgroundImage:
+                        'radial-gradient(60% 50% at 12% 0%, rgba(90,130,210,0.24), transparent 70%), radial-gradient(55% 45% at 100% 100%, rgba(90,130,210,0.14), transparent 70%)'
+                  }}
+               >
+                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#F2B705] text-[#16191D] md:h-16 md:w-16 md:rounded-2xl shadow-sm">
+                     {getIcon()}
+                  </div>
+                  <div className="md:mt-6">
+                     <h2 id="pin-title" className="text-lg font-semibold md:text-2xl">
+                        {getTitle()}
+                     </h2>
+                     <p className="mt-1 text-sm text-[#8FA0B8] md:mt-2 md:text-base">
+                        {getSubtitle()}
+                     </p>
+                  </div>
+               </div>
+
+               {/* Sisi Kanan: Keypad Interaktif */}
+               <div className="w-full md:w-1/2 flex flex-col items-center justify-center p-6 md:p-8 pm-surface">
+                  <p className="pm-muted text-sm text-center">
+                     {isOld && 'Masukkan 6 digit PIN lama Anda.'}
+                     {isNew && 'Masukkan 6 digit PIN baru.'}
+                     {isConfirm && 'Konfirmasi 6 digit PIN baru Anda.'}
+                  </p>
+
+                  {/* Dot Display */}
+                  <div
+                     role="status"
+                     aria-label={`${inputPin.length} dari 6 digit terisi`}
+                     className={`mt-4 flex gap-3 ${pinError ? 'pm-shake' : ''}`}
+                  >
+                     {Array.from({ length: 6 }).map((_, i) => (
+                        <span
+                           key={i}
+                           className={`h-3.5 w-3.5 rounded-full border transition-colors ${
+                              i < inputPin.length
+                                 ? pinError
+                                    ? 'bg-red-500 border-red-500'
+                                    : 'pm-dot-on'
+                                 : 'pm-border'
+                           }`}
+                        />
+                     ))}
+                  </div>
+
+                  {/* Status / Alert Feedback */}
+                  <p className="mt-3 h-5 text-sm text-center" aria-live="polite">
+                     {pinError ? (
+                        <span className="text-red-600 dark:text-red-400 font-semibold">{pinError}</span>
+                     ) : isLoading ? (
+                        <span className="pm-muted inline-flex items-center gap-2">
+                           <Loader2 size={14} className="animate-spin" />
+                           Memproses…
+                        </span>
+                     ) : null}
+                  </p>
+
+                  {/* Keypad Grid 3 Kolom */}
+                  <div className="mt-2 grid grid-cols-3 gap-3">
+                     {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
+                        <button
+                           key={num}
+                           type="button"
+                           onClick={() => handlePinInput(num)}
+                           disabled={isLoading || showSuccessToast}
+                           className="pm-focus pm-key grid h-14 w-14 place-items-center rounded-full border text-2xl font-medium transition active:scale-95 disabled:opacity-60 md:h-16 md:w-16 cursor-pointer"
+                        >
+                           {num}
+                        </button>
+                     ))}
+                     <span />
+                     <button
+                        type="button"
+                        onClick={() => handlePinInput('0')}
+                        disabled={isLoading || showSuccessToast}
+                        className="pm-focus pm-key grid h-14 w-14 place-items-center rounded-full border text-2xl font-medium transition active:scale-95 disabled:opacity-60 md:h-16 md:w-16 cursor-pointer"
+                     >
+                        0
+                     </button>
+                     <button
+                        type="button"
+                        onClick={handlePinDelete}
+                        disabled={isLoading || showSuccessToast}
+                        aria-label="Hapus digit terakhir"
+                        className="pm-focus pm-muted grid h-14 w-14 place-items-center rounded-full hover:opacity-70 disabled:opacity-40 md:h-16 md:w-16 cursor-pointer"
+                     >
+                        <Delete size={22} />
+                     </button>
+                  </div>
+
+                  {/* Tombol Batal */}
+                  <button
+                     type="button"
+                     onClick={handleClose}
+                     disabled={isLoading || showSuccessToast}
+                     className="pm-focus pm-muted mt-4 rounded-md px-3 py-1.5 text-sm font-medium hover:opacity-70 cursor-pointer"
+                  >
+                     Batal
+                  </button>
+               </div>
+            </div>
+         );
+      }
+
+      /* =========================================================================
+         TEMA 1: DESAIN LAMA
+         ========================================================================= */
       const gradientClass = getThemeGradient();
 
       return (
@@ -469,7 +653,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                </div>
 
                <button 
-                  onClick={() => { setPinStep('TAB'); setInputPin(''); setPinError(null); }} 
+                  onClick={handleClose} 
                   disabled={isLoading || showSuccessToast} 
                   className="mt-3 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-semibold px-6 py-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all active:scale-95"
                >
@@ -491,22 +675,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         - Full screen on Mobile
         - WIDER on Desktop
       */}
-         <div className={`bg-white dark:bg-gray-900 w-full h-full md:h-auto md:max-h-[90dvh] ${view === 'CHANGE_PIN' ? 'md:max-w-4xl' : 'md:max-w-2xl'} rounded-none md:rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden md:border border-gray-100 dark:border-gray-800 animate-[slideUp_0.3s_ease-out] flex flex-col transition-all duration-300`}>
+         <div className={`bg-white dark:bg-gray-900 w-full h-full md:h-auto md:max-h-[85vh] lg:max-h-[86vh] ${view === 'CHANGE_PIN' ? 'md:max-w-4xl' : 'md:max-w-2xl'} rounded-none md:rounded-[2rem] shadow-2xl relative z-10 overflow-hidden md:border border-gray-100 dark:border-gray-800 animate-[slideUp_0.3s_ease-out] flex flex-col transition-all duration-300 my-auto`}>
 
             {view === 'MAIN' && (
-               <div className="p-6 overflow-y-auto min-h-0 flex-1">
-                  <div className="w-12 h-1 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto mb-6 md:hidden"></div>
+               <div className="flex flex-col h-full max-h-[85vh] min-h-0">
+                  <div className="w-12 h-1 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto my-3 md:hidden"></div>
 
                   {/* Header */}
-                  <div className="flex justify-between items-center mb-6 shrink-0">
+                  <div className="flex justify-between items-center px-5 py-3.5 sm:px-6 sm:py-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
                      <h2 className="text-xl font-bold text-gray-900 dark:text-white">Pengaturan</h2>
                      <button onClick={handleClose} className="p-2 bg-gray-100 dark:bg-gray-800 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
                         <X size={20} className="text-gray-500 dark:text-gray-400" />
                      </button>
                   </div>
 
-                  {/* Account Info - Only on Main */}
-                  <div className="bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-800/50 rounded-2xl p-4 mb-6 flex items-center gap-4 border border-gray-100 dark:border-gray-700 shadow-sm shrink-0">
+                  <div className="p-4 sm:p-6 overflow-y-auto flex-1 custom-scrollbar min-h-0 pb-12">
+                     {/* Account Info - Only on Main */}
+                     <div className="bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-800/50 rounded-2xl p-3.5 sm:p-4 mb-4 flex items-center gap-3.5 sm:gap-4 border border-gray-100 dark:border-gray-700 shadow-sm shrink-0">
                      <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 border border-blue-200 dark:border-blue-800">
                         <Monitor size={24} />
                      </div>
@@ -717,6 +902,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                            <ChevronRight size={20} className="text-gray-300 group-hover:text-blue-500" />
                         </button>
                      )}
+
+                     {/* Pilihan Tema Desain Form Login (Tema 1 vs Tema 2) */}
+                     <div className="col-span-1 md:col-span-2 bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-700/80 rounded-2xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                           <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                                 <Palette size={18} />
+                              </div>
+                              <div>
+                                 <h4 className="text-sm font-bold text-gray-900 dark:text-white">Tema Desain Form Login</h4>
+                                 <p className="text-[11px] text-gray-500 dark:text-gray-400">Pilih tampilan layar login saat Anda mengakses aplikasi</p>
+                              </div>
+                           </div>
+                           {isSavingTheme && (
+                              <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+                                 <Loader2 size={12} className="animate-spin" /> Menyimpan...
+                              </span>
+                           )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                           {/* Tema 1 */}
+                           <button
+                              onClick={() => handleSelectLoginTheme('tema_1')}
+                              className={`relative flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                                 loginTheme === 'tema_1'
+                                    ? 'bg-blue-50/80 dark:bg-blue-900/20 border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                              }`}
+                           >
+                              <div className="w-10 h-10 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                 <Monitor size={20} />
+                              </div>
+                              <div className="flex-1 min-w-0 pr-6">
+                                 <div className="flex items-center gap-1.5">
+                                    <span className="text-sm font-bold text-gray-900 dark:text-white">Tema 1</span>
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                                       Default
+                                    </span>
+                                 </div>
+                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug">
+                                    Desain biru Kalindo dengan ilustrasi 3D warehouse & kartu mengambang responsif.
+                                 </p>
+                              </div>
+                              {loginTheme === 'tema_1' && (
+                                 <div className="absolute top-3.5 right-3.5 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                                    <Check size={12} strokeWidth={3} />
+                                 </div>
+                              )}
+                           </button>
+
+                           {/* Tema 2 */}
+                           <button
+                              onClick={() => handleSelectLoginTheme('tema_2')}
+                              className={`relative flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                                 loginTheme === 'tema_2'
+                                    ? 'bg-blue-50/80 dark:bg-blue-900/20 border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                              }`}
+                           >
+                              <div className="w-10 h-10 rounded-lg bg-[#0E1B2E] text-[#F2B705] border border-amber-500/30 flex items-center justify-center shrink-0 shadow-xs">
+                                 <ScanLine size={20} />
+                              </div>
+                              <div className="flex-1 min-w-0 pr-6">
+                                 <div className="flex items-center gap-1.5">
+                                    <span className="text-sm font-bold text-gray-900 dark:text-white">Tema 2</span>
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                                       Dark Navy
+                                    </span>
+                                 </div>
+                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug">
+                                    Desain dark navy 2-kolom dengan ilustrasi paket & scanner laser.
+                                 </p>
+                              </div>
+                              {loginTheme === 'tema_2' && (
+                                 <div className="absolute top-3.5 right-3.5 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                                    <Check size={12} strokeWidth={3} />
+                                 </div>
+                              )}
+                           </button>
+                        </div>
+                     </div>
                   </div>
 
                   <div className="mt-8 text-center shrink-0">
@@ -728,6 +995,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                      </p>
                   </div>
                </div>
+            </div>
             )}
 
             {/* SOUND SETTINGS VIEW - FIXED SCROLL ISSUE */}

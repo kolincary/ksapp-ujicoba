@@ -10,6 +10,7 @@ import { supabaseBundling } from '../services/supabaseBundlingClient';
 import { collection, getDocs, query, orderBy, where, limit } from 'firebase/firestore';
 import { db } from '../services/firebaseClient';
 import { PinModal } from './PinModal';
+import { getActiveLoginTheme, LoginThemeVariant } from '../services/themeSyncService';
 
 import { Users, UserPlus, Shield } from 'lucide-react';
 
@@ -117,6 +118,88 @@ export const getBarcodeCandidates = (raw: string): string[] => {
 };
 
 
+// --- TEMA 2 ASSETS ---
+const MarkTema2 = ({ size = 34 }: { size?: number }) => (
+  <div
+    className="grid place-items-center rounded-xl bg-[#F2B705] text-[#16191D] shadow-sm shrink-0"
+    style={{ width: size, height: size }}
+  >
+    <ScanLine size={size * 0.55} strokeWidth={2.4} />
+  </div>
+);
+
+function IllustrationTema2({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 520 400"
+      className={className}
+      role="img"
+      aria-label="Kotak paket terbuka dengan label barcode yang dipindai pemindai genggam"
+    >
+      <defs>
+        <pattern id="pk_dash_bc" width="9" height="1" patternUnits="userSpaceOnUse">
+          <rect width="2" height="1" fill="#16191D" />
+          <rect x="3" width="1" height="1" fill="#16191D" />
+          <rect x="5" width="1" height="1" fill="#16191D" />
+        </pattern>
+      </defs>
+      <path
+        d="M10 110 C110 30 210 150 300 70 S450 50 510 14"
+        fill="none"
+        stroke="#fff"
+        strokeOpacity=".16"
+        strokeWidth="2"
+        strokeDasharray="6 9"
+      />
+      <ellipse cx="260" cy="388" rx="160" ry="14" fill="#000" opacity=".28" />
+
+      {/* Clipboard */}
+      <g transform="translate(374 196) rotate(8)">
+        <rect width="104" height="140" rx="9" fill="#EDE8DB" />
+        <rect x="32" y="-8" width="40" height="18" rx="5" fill="#3A4A66" />
+        {[40, 68, 96].map((y) => (
+          <g key={y}>
+            <path
+              d={`M14 ${y} l5 5 9-10`}
+              stroke="#2E7D5B"
+              strokeWidth="3"
+              fill="none"
+              strokeLinecap="round"
+            />
+            <rect x="38" y={y - 4} width="52" height="5" rx="2.5" fill="#B9B2A0" />
+          </g>
+        ))}
+      </g>
+
+      {/* Kotak Paket Karton */}
+      <polygon points="185,238 260,200 250,158 168,196" fill="#D8B488" />
+      <polygon points="260,200 335,238 352,198 270,158" fill="#C9A173" />
+      <polygon points="260,200 335,238 260,276 185,238" fill="#6F5233" />
+      <polygon points="185,238 260,276 260,386 185,348" fill="#B58A5B" />
+      <polygon points="260,276 335,238 335,348 260,386" fill="#9C7449" />
+      <polygon points="185,238 260,276 238,302 162,264" fill="#C79B69" />
+      <polygon points="260,276 335,238 358,264 282,302" fill="#B38956" />
+
+      {/* Label Barcode */}
+      <g transform="matrix(1 -0.507 0 1 260 276)">
+        <rect x="9" y="46" width="57" height="48" rx="3" fill="#fff" />
+        <rect x="14" y="54" width="47" height="22" fill="url(#pk_dash_bc)" />
+        <rect x="14" y="82" width="47" height="3" rx="1.5" fill="#B9B2A0" />
+        <rect x="6" y="52" width="63" height="3" rx="1.5" fill="#F2B705" />
+      </g>
+
+      {/* Pemindai Genggam */}
+      <polygon points="350,116 268,322 328,336" fill="#F2B705" opacity=".16" />
+      <g transform="translate(332 96) rotate(-24)">
+        <rect width="84" height="34" rx="10" fill="#1F2A3D" />
+        <rect x="8" y="8" width="16" height="18" rx="4" fill="#F2B705" />
+        <rect x="44" y="26" width="26" height="70" rx="10" fill="#2A3A55" />
+      </g>
+    </svg>
+  );
+}
+
+
 // --- MEMOIZED COMPONENTS ---
 
 const ScanCard = React.memo(({ item, theme, index, onClick, isActuallyCancelled, role }: { item: ScannedItem, theme: any, index: number, onClick?: () => void, isActuallyCancelled?: boolean, role?: string }) => {
@@ -220,21 +303,75 @@ export const Dashboard: React.FC<DashboardProps> = ({
    const [isManualSubmitting, setIsManualSubmitting] = useState(false);
    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
    const [devMode, setDevMode] = useState(false);
+   const [activeLoginTheme, setActiveLoginTheme] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+
+   useEffect(() => {
+      const handleThemeChange = () => {
+         setActiveLoginTheme(getActiveLoginTheme());
+      };
+      window.addEventListener('storage', handleThemeChange);
+      window.addEventListener('kalindo_theme_changed', handleThemeChange);
+      return () => {
+         window.removeEventListener('storage', handleThemeChange);
+         window.removeEventListener('kalindo_theme_changed', handleThemeChange);
+      };
+   }, []);
+
+   const isTema2 = activeLoginTheme === 'tema_2';
 
    // Settings States
    const [isSoundEnabled, setIsSoundEnabled] = useState(true);
    const [isVibrationEnabled, setIsVibrationEnabled] = useState(true);
    const [scanSpeed, setScanSpeed] = useState<'SLOW' | 'NORMAL' | 'FAST' | 'TURBO'>('NORMAL');
    const [skipCheckerDuplicate, setSkipCheckerDuplicate] = useState(false);
-   const [strictResiMode, setStrictResiMode] = useState(false);
+   const [strictResiMode, setStrictResiMode] = useState<boolean>(() => {
+      const saved = localStorage.getItem('kalindo_strict_resi_mode');
+      return saved !== null ? saved === 'true' : true; // Default true agar selalu aman & ketat sejak awal buka web
+   });
+
+   // Realtime Active Profile Config (to detect whether CHECKER is active or disabled)
+   const [activeProfilesConfig, setActiveProfilesConfig] = useState<any[]>(() => {
+      if (profileConfig && profileConfig.length > 0) return profileConfig;
+      try {
+         const cached = localStorage.getItem('kalindo_profile_config');
+         return cached ? JSON.parse(cached) : [];
+      } catch (e) {
+         return [];
+      }
+   });
+
+   useEffect(() => {
+      if (profileConfig && profileConfig.length > 0) {
+         setActiveProfilesConfig(profileConfig);
+      }
+   }, [profileConfig]);
+
+   // Helper: Cek apakah profil CHECKER sedang aktif atau dinonaktifkan di Pengaturan Profil
+   const isCheckerProfileActive = useCallback(() => {
+      let cfg = activeProfilesConfig && activeProfilesConfig.length > 0 ? activeProfilesConfig : null;
+      if (!cfg && profileConfig && profileConfig.length > 0) cfg = profileConfig;
+      if (!cfg) {
+         try {
+            const cached = localStorage.getItem('kalindo_profile_config');
+            if (cached) cfg = JSON.parse(cached);
+         } catch (e) {}
+      }
+      if (!cfg || !Array.isArray(cfg)) return true;
+      const checker = cfg.find((p: any) => p.role === UserRole.CHECKER || p.role === 'CHECKER');
+      return checker ? checker.is_active !== false : true;
+   }, [activeProfilesConfig, profileConfig]);
 
    useEffect(() => {
       const fetchGlobalSettings = async () => {
          try {
-            const { data } = await supabase.from('app_settings').select('*').eq('id', 1).single();
-            if (data) {
+            const { data, error } = await supabase.from('app_settings').select('*').eq('id', 1).single();
+            if (!error && data) {
                setSkipCheckerDuplicate(!!data.skip_duplicate_checker);
-               setStrictResiMode(!!data.strict_resi_mode);
+               if (data.strict_resi_mode !== undefined && data.strict_resi_mode !== null) {
+                  const isStrict = !!data.strict_resi_mode;
+                  setStrictResiMode(isStrict);
+                  localStorage.setItem('kalindo_strict_resi_mode', String(isStrict));
+               }
             }
          } catch (err) {
             console.error("Error fetching global settings:", err);
@@ -242,18 +379,59 @@ export const Dashboard: React.FC<DashboardProps> = ({
       };
       fetchGlobalSettings();
 
+      // Sync Profiles Config in realtime
+      const fetchProfilesConfig = async () => {
+         try {
+            const { data } = await supabase.from('app_profiles_config').select('*').order('sort_order');
+            if (data && data.length > 0) {
+               setActiveProfilesConfig(data);
+               localStorage.setItem('kalindo_profile_config', JSON.stringify(data));
+            }
+         } catch (e) {}
+      };
+      fetchProfilesConfig();
+
+      // Listen to profile config updates from localStorage or cross-tab/modal
+      const handleProfileConfigUpdate = (e: any) => {
+         if (e?.detail && Array.isArray(e.detail)) {
+            setActiveProfilesConfig(e.detail);
+         } else {
+            try {
+               const cached = localStorage.getItem('kalindo_profile_config');
+               if (cached) setActiveProfilesConfig(JSON.parse(cached));
+            } catch (err) {}
+         }
+      };
+      window.addEventListener('kalindo_profile_config_updated', handleProfileConfigUpdate);
+      window.addEventListener('storage', handleProfileConfigUpdate);
+
+      // Subscribe realtime Supabase for app_profiles_config
+      const channelProfiles = supabase
+         .channel('realtime_profiles_config')
+         .on('postgres_changes', { event: '*', schema: 'public', table: 'app_profiles_config' }, () => {
+            fetchProfilesConfig();
+         })
+         .subscribe();
+
       const channel = supabase
          .channel('dashboard_app_settings_changes')
          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings' }, (payload) => {
             if (payload.new) {
                setSkipCheckerDuplicate(!!payload.new.skip_duplicate_checker);
-               setStrictResiMode(!!payload.new.strict_resi_mode);
+               if (payload.new.strict_resi_mode !== undefined && payload.new.strict_resi_mode !== null) {
+                  const isStrict = !!payload.new.strict_resi_mode;
+                  setStrictResiMode(isStrict);
+                  localStorage.setItem('kalindo_strict_resi_mode', String(isStrict));
+               }
             }
          })
          .subscribe();
 
       return () => {
          supabase.removeChannel(channel);
+         supabase.removeChannel(channelProfiles);
+         window.removeEventListener('kalindo_profile_config_updated', handleProfileConfigUpdate);
+         window.removeEventListener('storage', handleProfileConfigUpdate);
       };
    }, []);
 
@@ -2193,7 +2371,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         }
 
        // --- STRICT RESI MODE VALIDATION ---
-       if (strictResiMode || role === UserRole.GUDANG || role === UserRole.OJOL) {
+       const isStrictActive = strictResiMode || (localStorage.getItem('kalindo_strict_resi_mode') !== 'false');
+       if (isStrictActive || role === UserRole.GUDANG || role === UserRole.OJOL) {
           try {
              const cleanBc = result.barcode.trim().toUpperCase();
              const candidates = getBarcodeCandidates(result.barcode);
@@ -2415,57 +2594,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
              }
 
              // 5. Role: PACKING & PACKING_2
-             else if (role === UserRole.PACKING || role === UserRole.PACKING_2) {
-                const { data: checkerData, error: checkerErr } = await supabase
-                   .from('scanned_items')
-                   .select('barcode')
-                   .in('barcode', candidates)
-                   .eq('role', UserRole.CHECKER)
-                   .limit(1)
-                   .maybeSingle();
+              else if (role === UserRole.PACKING || role === UserRole.PACKING_2) {
+                 const checkerActive = isCheckerProfileActive();
+                 const requiredRoles = checkerActive 
+                    ? [UserRole.CHECKER]
+                    : [UserRole.PICKER, UserRole.PICKER_2, UserRole.OJOL, UserRole.CHECKER];
+                 const targetStageName = checkerActive ? 'Checker' : 'Picker / Ojol';
 
-                if (checkerErr) throw checkerErr;
-                if (!checkerData) {
-                   // Cek apakah barcode terdaftar di Batch Management Admin
-                   const batchCheck = await validateBarcodeRegisteredInBatch(candidates);
-                   if (!batchCheck.isValid) {
-                      playError();
-                      const msg = `⛔ DITOLAK!\nResi "${result.barcode}" tidak terdaftar di Batch Management Admin.`;
-                      await recordFail('FORBIDDEN', `Resi tidak terdaftar di Batch Admin: ${result.barcode}`);
-                      if (isContinuousScan) {
-                         updateContinuousStatus('error', 'Ditolak (Batch Admin)');
-                         triggerCameraToast(msg, 'error');
-                      } else {
-                         setErrorToast(msg);
-                         setTimeout(() => setErrorToast(null), 5000);
-                      }
-                      return;
-                   }
+                 const { data: prevScanData, error: prevScanErr } = await supabase
+                    .from('scanned_items')
+                    .select('barcode')
+                    .in('barcode', candidates)
+                    .in('role', requiredRoles)
+                    .limit(1)
+                    .maybeSingle();
 
-                   playError();
-                   if (navigator.vibrate) {
-                      try { navigator.vibrate([300, 150, 300, 150, 600]); } catch (e) {}
-                   }
-                   const msg = `⛔ DITOLAK!\nResi "${result.barcode}" belum discan oleh Checker.`;
-                   await recordFail('FORBIDDEN', `Resi belum discan oleh Checker: ${result.barcode}`);
-                   if (isContinuousScan) {
-                      updateContinuousStatus('error', 'Ditolak (Checker)');
-                      triggerCameraToast(msg, 'error');
-                   } else {
-                      setErrorToast(msg);
-                      setTimeout(() => setErrorToast(null), 5000);
-                   }
-                   // AUTO-PAUSE & WAJIB ACKNOWLEDGE
-                   hasActiveSequenceAlertRef.current = true;
-                   setSequenceAlertModal({
-                      barcode: result.barcode,
-                      role: role,
-                      targetRole: 'Checker',
-                      message: `Resi "${result.barcode}" belum discan oleh Checker!`
-                   });
-                   return;
-                }
-             }
+                 if (prevScanErr) throw prevScanErr;
+                 if (!prevScanData) {
+                    // Cek apakah barcode terdaftar di Batch Management Admin
+                    const batchCheck = await validateBarcodeRegisteredInBatch(candidates);
+                    if (!batchCheck.isValid) {
+                       playError();
+                       const msg = `⛔ DITOLAK!\nResi "${result.barcode}" tidak terdaftar di Batch Management Admin.`;
+                       await recordFail('FORBIDDEN', `Resi tidak terdaftar di Batch Admin: ${result.barcode}`);
+                       if (isContinuousScan) {
+                          updateContinuousStatus('error', 'Ditolak (Batch Admin)');
+                          triggerCameraToast(msg, 'error');
+                       } else {
+                          setErrorToast(msg);
+                          setTimeout(() => setErrorToast(null), 5000);
+                       }
+                       return;
+                    }
+
+                    playError();
+                    if (navigator.vibrate) {
+                       try { navigator.vibrate([300, 150, 300, 150, 600]); } catch (e) {}
+                    }
+                    const msg = `⛔ DITOLAK!\nResi "${result.barcode}" belum discan oleh ${targetStageName}.`;
+                    await recordFail('FORBIDDEN', `Resi belum discan oleh ${targetStageName}: ${result.barcode}`);
+                    if (isContinuousScan) {
+                       updateContinuousStatus('error', `Ditolak (${checkerActive ? 'Checker' : 'Picker'})`);
+                       triggerCameraToast(msg, 'error');
+                    } else {
+                       setErrorToast(msg);
+                       setTimeout(() => setErrorToast(null), 5000);
+                    }
+                    // AUTO-PAUSE & WAJIB ACKNOWLEDGE
+                    hasActiveSequenceAlertRef.current = true;
+                    setSequenceAlertModal({
+                       barcode: result.barcode,
+                       role: role,
+                       targetRole: targetStageName,
+                       message: `Resi "${result.barcode}" belum discan oleh ${targetStageName}!`
+                    });
+                    return;
+                 }
+              }
           } catch (err: any) {
              playError();
              const msg = "Gagal Validasi Resi Ketat (Network)";
@@ -4236,6 +4421,47 @@ export const Dashboard: React.FC<DashboardProps> = ({
          }
       };
 
+      const renderTema2ScanCard = (item: ScannedItem, index: number, isActuallyCancelled?: boolean) => {
+         const isCancel = isActuallyCancelled || cancelledSet.has((item.barcode || '').trim().toUpperCase()) || (item.description || '').toUpperCase().includes('[CANCEL]') || item.priority === 'HIGH';
+         const isFailed = (item.status as string) === 'FAILED' || item.status === 'ERROR';
+         const isOk = !isFailed && !isCancel;
+         const timeStr = item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+         return (
+            <div
+               key={item.id || index}
+               onClick={() => handleScanItemClick(item)}
+               className="pk-surface pk-border flex items-center justify-between gap-3 rounded-xl border px-4 py-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            >
+               <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                     <p className="pk-mono truncate text-sm font-medium text-[#16191D] dark:text-[#ECEEF0]">{item.barcode}</p>
+                     {item.order_id && (
+                        <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded border border-indigo-100 dark:border-indigo-800">
+                           {item.order_id}
+                        </span>
+                     )}
+                  </div>
+                  <p className="pk-muted text-xs mt-0.5">
+                     {timeStr}
+                     {item.destination && <span className="mx-1">• {item.destination}</span>}
+                     {item.employee_name && <span className="mx-1">• {item.employee_name}</span>}
+                  </p>
+               </div>
+               <span
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                     isCancel
+                        ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                        : isOk
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                        : "bg-red-500/10 text-red-600 dark:text-red-400"
+                  }`}
+               >
+                  {isCancel ? "Cancel" : isOk ? "Selesai" : "Gagal"}
+               </span>
+            </div>
+         );
+      };
+
       const renderHistoryGroups = () => {
          if (!groupedList) return null;
          const dates = Object.keys(groupedList);
@@ -4468,17 +4694,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
                {isHistoryView ? renderHistoryGroups() : (
                   filteredList.length === 0 ? renderEmptyState() : (
                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className={isTema2 ? "mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"}>
                            {filteredList.slice((scanListPage - 1) * ITEMS_PER_PAGE, scanListPage * ITEMS_PER_PAGE).map((item, index) => (
-                              <ScanCard 
-                                 key={item.id} 
-                                 item={item} 
-                                 theme={theme} 
-                                 index={(scanListPage - 1) * ITEMS_PER_PAGE + index} 
-                                 onClick={() => handleScanItemClick(item)} 
-                                 isActuallyCancelled={cancelledSet.has(item.barcode.trim().toUpperCase())}
-                                 role={role}
-                              />
+                              isTema2 ? renderTema2ScanCard(item, (scanListPage - 1) * ITEMS_PER_PAGE + index, cancelledSet.has(item.barcode.trim().toUpperCase())) : (
+                                 <ScanCard 
+                                    key={item.id} 
+                                    item={item} 
+                                    theme={theme} 
+                                    index={(scanListPage - 1) * ITEMS_PER_PAGE + index} 
+                                    onClick={() => handleScanItemClick(item)} 
+                                    isActuallyCancelled={cancelledSet.has(item.barcode.trim().toUpperCase())}
+                                    role={role}
+                                 />
+                              )
                            ))}
                         </div>
                         {/* Pagination Controls */}
@@ -4487,17 +4715,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               <button
                                  onClick={() => { setScanListPage(p => Math.max(1, p - 1)); listEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
                                  disabled={scanListPage <= 1}
-                                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${scanListPage <= 1 ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg active:scale-95 border border-gray-200 dark:border-gray-600'}`}
+                                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${scanListPage <= 1 ? (isTema2 ? 'pk-surface pk-muted border border-dashed opacity-50 cursor-not-allowed' : 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed') : (isTema2 ? 'pk-surface pk-border border shadow-sm hover:opacity-80 active:scale-95' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg active:scale-95 border border-gray-200 dark:border-gray-600')}`}
                               >
                                  ← Prev
                               </button>
-                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-lg">
+                              <span className={`text-xs ${isTema2 ? 'font-mono pk-muted px-3 py-1.5 rounded-lg pk-surface border' : 'font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-lg'}`}>
                                  {scanListPage} / {Math.ceil(filteredList.length / ITEMS_PER_PAGE)} ({filteredList.length} items)
                               </span>
                               <button
                                  onClick={() => { setScanListPage(p => Math.min(Math.ceil(filteredList.length / ITEMS_PER_PAGE), p + 1)); listEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
                                  disabled={scanListPage >= Math.ceil(filteredList.length / ITEMS_PER_PAGE)}
-                                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${scanListPage >= Math.ceil(filteredList.length / ITEMS_PER_PAGE) ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg active:scale-95 border border-gray-200 dark:border-gray-600'}`}
+                                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${scanListPage >= Math.ceil(filteredList.length / ITEMS_PER_PAGE) ? (isTema2 ? 'pk-surface pk-muted border border-dashed opacity-50 cursor-not-allowed' : 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed') : (isTema2 ? 'pk-surface pk-border border shadow-sm hover:opacity-80 active:scale-95' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg active:scale-95 border border-gray-200 dark:border-gray-600')}`}
                               >
                                  Next →
                               </button>
@@ -4748,7 +4976,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
    };
 
    return (
-      <div className="flex flex-col min-h-screen pb-32 md:h-[100dvh] md:overflow-hidden md:pb-0 bg-gray-50 dark:bg-gray-950 relative transition-colors duration-500 ease-in-out">
+      <div className={`flex flex-col h-full w-full overflow-hidden ${isTema2 ? 'pk-root' : 'bg-gray-50 dark:bg-gray-950'} relative transition-colors duration-500 ease-in-out`} data-theme={isDarkMode ? 'dark' : 'light'}>
+         {isTema2 && (
+            <style>{`
+              @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+              .pk-root{--page:#F3F4F2;--surface:#fff;--text:#16191D;--muted:#5B636B;--line:#D5D9DC;--ring:#B8860B;
+                font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--page);color:var(--text)}
+              .pk-root[data-theme=dark]{--page:#0F1114;--surface:#181B1F;--text:#ECEEF0;--muted:#9AA3AB;--line:#2B3036;--ring:#F2B705}
+              .pk-surface{background:var(--surface)} .pk-muted{color:var(--muted)} .pk-border{border-color:var(--line)}
+              .pk-field{background:var(--surface);border-color:var(--line);color:var(--text)}
+              .pk-field::placeholder{color:var(--muted)}
+              .pk-focus:focus-visible,.pk-field:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+              .pk-mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace}
+              @media (min-width:1024px){html{font-size:clamp(14px,min(2.2vh,1.1vw),17px)}}
+            `}</style>
+         )}
          <RunningTextBanner role={role} />
 
          {/* CRITICAL NETWORK ERROR MODAL */}
@@ -4839,6 +5081,240 @@ export const Dashboard: React.FC<DashboardProps> = ({
          )}
 
          {/* Header Area */}
+         {isTema2 ? (
+            <header className="relative overflow-hidden rounded-b-[1.75rem] bg-[#0E1B2E] text-white lg:rounded-b-[2.25rem] z-10 shrink-0 shadow-lg">
+               <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+                  <IllustrationTema2 className="absolute -bottom-10 -right-6 block w-[16rem] max-w-none opacity-20 sm:w-[20rem] sm:opacity-30 md:w-[24rem] md:opacity-40 lg:right-[1%] lg:w-[26rem] lg:opacity-50 xl:w-[30rem] xl:opacity-70 pointer-events-none z-0" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-[#0E1B2E] via-[#0E1B2E]/80 to-transparent" />
+               </div>
+               <div className="relative mx-auto w-full max-w-6xl px-4 pb-4 sm:pb-6 pt-3 sm:pt-4 lg:px-8 lg:pb-7 lg:pt-5 z-10">
+                  <div className="flex items-start justify-between gap-3">
+                     <div className="flex items-center gap-2.5">
+                        {hasSidebar && (
+                           <button
+                              onClick={() => setIsSidebarOpen(true)}
+                              aria-label="Buka menu navigasi"
+                              className="pk-focus grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20"
+                           >
+                              <Menu size={18} />
+                           </button>
+                        )}
+                        <Monitor size={19} className="text-white/90" />
+                        <span className="text-base font-bold tracking-tight text-white">Kalindo Scan</span>
+                     </div>
+                     <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                           {!isOnline && (
+                              <div className="p-2 bg-red-500/20 rounded-full animate-pulse mr-1" title="Offline Mode">
+                                 <WifiOff size={16} className="text-white" />
+                              </div>
+                           )}
+                           {isMainView && currentView !== 'LEADER_GLOBAL' && currentView !== 'LEADER_ORDERS' && currentView !== 'LEADER_DASHBOARD' && (
+                              <button
+                                 onClick={handleHistoryClick}
+                                 aria-label="Riwayat"
+                                 className="pk-focus grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20"
+                              >
+                                 <History size={17} />
+                              </button>
+                           )}
+                           <button
+                              onClick={() => setIsSettingsOpen(true)}
+                              aria-label="Pengaturan"
+                              className="pk-focus grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20"
+                           >
+                              <Settings size={17} />
+                           </button>
+                           <button
+                              onClick={isHistoryView || isFailedView ? handleHistoryBack : onBack}
+                              aria-label="Kembali ke menu utama"
+                              className="pk-focus grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20"
+                           >
+                              <ArrowRight size={17} />
+                           </button>
+                        </div>
+                        <p className="pk-mono mt-3 sm:mt-4 text-xs text-[#8FA0B8] text-right font-medium">
+                           {todayDate}
+                        </p>
+                     </div>
+                  </div>
+
+                  <div className="mt-3 sm:mt-4">
+                     <h1 className="text-2xl sm:text-3xl lg:text-3xl font-extrabold tracking-tight text-white uppercase">
+                        {currentTitle}
+                     </h1>
+                     <p className="mt-0.5 sm:mt-1 text-xs sm:text-sm text-[#8FA0B8]">{currentSubtitle}</p>
+                     <div className="mt-2.5 sm:mt-3 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white">
+                           <User size={13} />
+                           {employeeName || role}
+                        </span>
+                        {userEmail && (
+                           <span className="pk-mono max-w-full truncate rounded-full bg-black/25 px-3 py-1 text-xs text-[#C8D3E3]">
+                              {userEmail}
+                           </span>
+                        )}
+                        {isLeader && selectedLeaderProfile && (
+                           <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                              Profil: {selectedLeaderProfile}
+                           </span>
+                        )}
+                     </div>
+                  </div>
+
+                  {/* DATE FILTER (Leader Reports Only) */}
+                  {isLeader && (currentView === 'LEADER_ORDERS' || currentView === 'LEADER_GLOBAL' || currentView === 'LEADER_SUMMARY') && (
+                     <div 
+                        onClick={() => dateInputRef.current?.showPicker()}
+                        className="flex items-center gap-4 mt-4 bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 shadow-lg group hover:bg-white/20 transition-all cursor-pointer overflow-hidden relative"
+                     >
+                        <div className="flex-1 min-w-0">
+                           <div className="flex items-center gap-2 mb-1.5">
+                              <p className="text-[9px] font-black text-indigo-100 uppercase tracking-[0.2em] leading-none text-shadow-sm">DATA TANGGAL PILIHAN</p>
+                           </div>
+                           <div className="relative">
+                              <input
+                                 ref={dateInputRef}
+                                 type="date"
+                                 value={leaderOrdersDate}
+                                 onChange={(e) => setLeaderOrdersDate(e.target.value)}
+                                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                              />
+                              <p className="text-xl font-black text-white p-0">
+                                 {new Date(leaderOrdersDate).toLocaleDateString('id-ID', {
+                                    day: '2-digit',
+                                    month: 'long',
+                                    year: 'numeric'
+                                 })}
+                              </p>
+                           </div>
+                        </div>
+                        <div className="bg-white/20 hover:bg-white/30 text-white text-[10px] font-black uppercase px-4 py-2.5 rounded-xl border border-white/20 active:scale-95 transition-all shadow-sm flex-shrink-0 animate-pulse">
+                           TAP UNTUK UBAH
+                        </div>
+                     </div>
+                  )}
+
+                  {/* PRETELAN / SATUAN Toggle for SCAN_2 */}
+                  {isLeader && currentView === 'SCAN_2' && (
+                     <div className="flex items-center gap-2 mt-3">
+                        <button
+                           onClick={() => setLeaderScanType('PRETELAN')}
+                           className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all border-2 flex items-center justify-center gap-2 ${
+                              leaderScanType === 'PRETELAN'
+                                 ? 'bg-white text-purple-700 border-white shadow-lg shadow-white/20'
+                                 : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20'
+                           }`}
+                        >
+                           <Layers size={16} className={leaderScanType === 'PRETELAN' ? 'text-purple-600' : ''} />
+                           PRETELAN
+                        </button>
+                        <button
+                           onClick={() => setLeaderScanType('SATUAN')}
+                           className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all border-2 flex items-center justify-center gap-2 ${
+                              leaderScanType === 'SATUAN'
+                                 ? 'bg-white text-indigo-700 border-white shadow-lg shadow-white/20'
+                                 : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20'
+                           }`}
+                        >
+                           <Package size={16} className={leaderScanType === 'SATUAN' ? 'text-indigo-600' : ''} />
+                           SATUAN
+                        </button>
+                     </div>
+                  )}
+
+                  {/* PRETELAN / SATUAN Toggle for LEADER_ORDERS */}
+                  {isLeader && currentView === 'LEADER_ORDERS' && (
+                     <div className="flex items-center gap-2 mt-3">
+                        <button
+                           onClick={() => setLeaderOrdersTypeFilter('PRETELAN')}
+                           className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all border-2 flex items-center justify-center gap-2 ${
+                              leaderOrdersTypeFilter === 'PRETELAN'
+                                 ? 'bg-white text-purple-700 border-white shadow-lg shadow-white/20'
+                                 : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20'
+                           }`}
+                        >
+                           <Layers size={16} className={leaderOrdersTypeFilter === 'PRETELAN' ? 'text-purple-600' : ''} />
+                           PRETELAN
+                        </button>
+                        <button
+                           onClick={() => setLeaderOrdersTypeFilter('SATUAN')}
+                           className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all border-2 flex items-center justify-center gap-2 ${
+                              leaderOrdersTypeFilter === 'SATUAN'
+                                 ? 'bg-white text-indigo-700 border-white shadow-lg shadow-white/20'
+                                 : 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20'
+                           }`}
+                        >
+                           <Package size={16} className={leaderOrdersTypeFilter === 'SATUAN' ? 'text-indigo-600' : ''} />
+                           SATUAN
+                        </button>
+                     </div>
+                  )}
+
+                  {/* HEADER STATS CARDS */}
+                  {isMainView && currentView !== 'LEADER_GLOBAL' && currentView !== 'LEADER_ORDERS' && currentView !== 'LEADER_DASHBOARD' && (
+                     <div className="mt-2.5 sm:mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:max-w-md">
+                        <div className="rounded-xl sm:rounded-2xl border border-white/15 bg-white/10 p-2 sm:p-3">
+                           <p className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-[#C8D3E3]">COMPLETED</p>
+                           <p className="mt-1.5 sm:mt-2 flex items-baseline gap-2">
+                              <span className="text-2xl sm:text-3xl font-semibold tabular-nums">
+                                 {isLeader && currentView === 'LEADER_PENDING' ? todayItems.length : todayCount}
+                              </span>
+                              <span className="text-xs sm:text-sm text-[#8FA0B8]">label</span>
+                           </p>
+                        </div>
+                        {(isGudang || (isLeader && currentView === 'LEADER_PENDING')) ? (
+                           <div className="rounded-xl sm:rounded-2xl border border-white/15 bg-white/10 p-2 sm:p-3">
+                              <p className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-[#C8D3E3]">PENDING</p>
+                              <p className="mt-1.5 sm:mt-2 flex items-baseline gap-2">
+                                 <span className="text-2xl sm:text-3xl font-semibold tabular-nums">
+                                    {isLeader && currentView === 'LEADER_PENDING' ? todayItems.length : pendingCount}
+                                 </span>
+                                 <span className="text-xs sm:text-sm text-[#8FA0B8]">items</span>
+                              </p>
+                           </div>
+                        ) : (
+                           <button
+                              onClick={() => setCurrentView('FAILED_HISTORY')}
+                              className="pk-focus rounded-xl sm:rounded-2xl border border-white/15 bg-white/10 p-2 sm:p-3 text-left transition-colors hover:bg-white/15"
+                           >
+                              <p className="flex items-center gap-1 text-[11px] sm:text-xs font-bold uppercase tracking-wider text-[#C8D3E3]">
+                                 FAILED <ChevronRight size={14} />
+                              </p>
+                              <p className="mt-1.5 sm:mt-2 flex items-baseline gap-2">
+                                 <span className="text-2xl sm:text-3xl font-semibold tabular-nums">{failedCount}</span>
+                                 <span className="text-xs sm:text-sm text-[#8FA0B8]">errors</span>
+                              </p>
+                           </button>
+                        )}
+                     </div>
+                  )}
+
+                  {/* TAB TOGGLE ADMIN */}
+                  {role === UserRole.ADMIN && (currentView === 'SCAN' || currentView === 'SPECIAL_SCAN') && (
+                     <div className="mt-4 max-w-xl">
+                        <div className="flex bg-white/10 p-1.5 rounded-2xl w-full relative border border-white/20 backdrop-blur-md">
+                           <div className={`absolute inset-1.5 w-[calc(50%-6px)] bg-white rounded-xl shadow-sm transition-all duration-300 ease-out ${currentView === 'SPECIAL_SCAN' ? 'translate-x-full' : 'translate-x-0'}`} />
+                           <button
+                              onClick={() => setCurrentView('SCAN')}
+                              className={`flex-1 flex items-center justify-center gap-2 py-2 relative z-10 transition-colors ${currentView === 'SCAN' ? 'text-blue-900 font-bold' : 'text-white/80 font-medium'}`}
+                           >
+                              <ListOrdered size={16} />
+                              <span className="text-sm">Scan List</span>
+                           </button>
+                           <button
+                              onClick={() => setCurrentView('SPECIAL_SCAN')}
+                              className={`flex-1 flex items-center justify-center gap-2 py-2 relative z-10 transition-colors ${currentView === 'SPECIAL_SCAN' ? 'text-blue-900 font-bold' : 'text-white/80 font-medium'}`}
+                           >
+                              <ScanLine size={16} />
+                              <span className="text-sm">Special Scan</span>
+                           </button>
+                        </div>
+                     </div>
+                  )}
+               </div>
+            </header>
+         ) : (
          <div className={`${theme.gradient} pt-safe-top pb-8 rounded-b-[2.5rem] md:rounded-b-[3rem] shadow-xl shadow-gray-200 dark:shadow-none z-10 flex flex-col relative overflow-hidden shrink-0 transition-all duration-500`}>
 
             {/* Role WebP Background Asset - Full Width Left to Right */}
@@ -5118,6 +5594,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                </div>
             )}
          </div>
+         )}
 
 
 

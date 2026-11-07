@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { User, Search, ChevronRight, Loader2, ArrowLeft, Filter, X, ShieldCheck, Lock, KeyRound, Delete, CheckCircle, AlertCircle } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import { UserRole } from '../types';
+import { getActiveLoginTheme, LoginThemeVariant } from '../services/themeSyncService';
 
 interface NameSelectionModalProps {
   onSelect: (name: string) => void;
@@ -23,19 +24,19 @@ interface Employee {
 const EmployeeButton = React.memo(({ emp, role, onClick }: { emp: Employee, role: UserRole | null, onClick: () => void }) => (
   <button
     onClick={onClick}
-    className="w-full flex items-center justify-between p-4 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:border-blue-800 transition-all group active:scale-[0.99] shadow-sm"
+    className="w-full flex items-center justify-between p-3 sm:p-3.5 lg:p-4 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl sm:rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:border-blue-800 transition-all group active:scale-[0.99] shadow-sm text-left"
   >
-    <div className="flex-1">
-      <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 group-hover:bg-blue-100 dark:group-hover:bg-blue-800 group-hover:text-blue-600 dark:group-hover:text-blue-200 transition-colors shrink-0">
-          <User size={24} />
+    <div className="flex-1 min-w-0 pr-2">
+      <div className="flex items-center gap-3 sm:gap-3.5">
+        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 group-hover:bg-blue-100 dark:group-hover:bg-blue-800 group-hover:text-blue-600 dark:group-hover:text-blue-200 transition-colors shrink-0">
+          <User size={20} className="sm:w-5 sm:h-5" />
         </div>
-        <div className="text-left">
-          <span className="font-bold text-gray-800 dark:text-gray-100 group-hover:text-blue-700 dark:group-hover:text-blue-300 text-lg block">
+        <div className="text-left min-w-0 flex-1">
+          <span className="font-bold text-gray-800 dark:text-gray-100 group-hover:text-blue-700 dark:group-hover:text-blue-300 text-sm sm:text-base block truncate">
             {emp.name}
           </span>
           {emp.shift && (
-            <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium border ${emp.shift === 'Shift Suhel'
+            <span className={`inline-block mt-0.5 text-[10px] px-2 py-0.5 rounded-md font-medium border truncate max-w-full ${emp.shift === 'Shift Suhel'
               ? 'bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800'
               : role === UserRole.ADMIN
               ? 'bg-pink-50 text-pink-600 border-pink-100 dark:bg-pink-900/30 dark:text-pink-300 dark:border-pink-800'
@@ -47,8 +48,8 @@ const EmployeeButton = React.memo(({ emp, role, onClick }: { emp: Employee, role
         </div>
       </div>
     </div>
-    <div className="w-8 h-8 rounded-full bg-gray-50 dark:bg-gray-700 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all">
-      <ChevronRight size={18} className="text-gray-400 group-hover:text-white" />
+    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gray-50 dark:bg-gray-700 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all shrink-0">
+      <ChevronRight size={16} className="text-gray-400 group-hover:text-white sm:w-4.5 sm:h-4.5" />
     </div>
   </button>
 ));
@@ -69,6 +70,16 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
   const [pinError, setPinError] = useState<string | null>(null);
   const [isPinLoading, setIsPinLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  // Active theme (Tema 1 vs Tema 2)
+  const [activeTheme] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+  const [isDarkMode] = useState<boolean>(() => {
+    return (
+      document.documentElement.classList.contains('dark') ||
+      localStorage.getItem('theme') === 'dark'
+    );
+  });
 
   // Ref to prevent state updates on unmounted component
   const isMounted = useRef(true);
@@ -144,6 +155,7 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
       if (prev.length < 6) {
         const newPin = prev + num;
         setPinError(null);
+        setShake(false);
         return newPin;
       }
       return prev;
@@ -162,6 +174,7 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
     if (isPinLoading || isSuccess) return;
     setPinInput(prev => prev.slice(0, -1));
     setPinError(null);
+    setShake(false);
   }, [isPinLoading, isSuccess]);
 
   // Keyboard Listener
@@ -229,6 +242,8 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
             setTempCreatePin('');
             setCurrentStep('CREATE');
             setIsSuccess(false);
+            setShake(true);
+            setTimeout(() => setShake(false), 450);
           }
         } finally {
           if (isMounted.current) setIsPinLoading(false);
@@ -238,6 +253,8 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
         setPinInput('');
         setTempCreatePin('');
         setCurrentStep('CREATE');
+        setShake(true);
+        setTimeout(() => setShake(false), 450);
       }
     }
     else if (currentStep === 'VERIFY') {
@@ -251,6 +268,8 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
       } else {
         setPinError("PIN Salah. Coba lagi.");
         setPinInput('');
+        setShake(true);
+        setTimeout(() => setShake(false), 450);
       }
     }
   };
@@ -260,6 +279,8 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
     setCurrentStep('LIST');
     setSelectedEmployee(null);
     setPinInput('');
+    setPinError(null);
+    setShake(false);
   };
 
   const getThemeGradient = () => {
@@ -299,6 +320,208 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
     const isConfirming = currentStep === 'CONFIRM';
     const isVerifying = currentStep === 'VERIFY';
 
+    /* =========================================================================
+       TEMA 2: SPLIT CARD (MIDNIGHT NAVY + MINIMALIST KEYPAD)
+       ========================================================================= */
+    if (activeTheme === 'tema_2') {
+      const getTitle = () => {
+        if (isCreating) return 'Buat PIN Baru';
+        if (isConfirming) return 'Konfirmasi PIN';
+        return 'Verifikasi keamanan';
+      };
+
+      const getLeftSubtitle = () => {
+        if (isCreating) return 'Buat 6-digit PIN keamanan untuk akun Anda.';
+        if (isConfirming) return 'Masukkan kembali PIN Anda untuk konfirmasi.';
+        return `Masukkan PIN untuk mengakses akun ${selectedEmployee?.name || (role === UserRole.ADMIN ? 'Admin' : 'User')}.`;
+      };
+
+      const getRightInstruction = () => {
+        if (isCreating) return 'Masukkan 6 digit PIN baru Anda.';
+        if (isConfirming) return 'Masukkan kembali 6 digit PIN konfirmasi.';
+        return 'Masukkan PIN 6 digit Anda.';
+      };
+
+      const getIcon = () => {
+        if (isCreating) return <KeyRound size={26} />;
+        if (isConfirming) return <CheckCircle size={26} />;
+        return <ShieldCheck size={26} />;
+      };
+
+      return (
+        <div
+          className="pm-root fixed inset-0 z-[60] grid place-items-center bg-black/60 p-4 backdrop-blur-xs select-none"
+          data-theme={isDarkMode ? 'dark' : 'light'}
+          onMouseDown={handleBackFromPin}
+        >
+          <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+            .pm-root {
+              --surface: #ffffff;
+              --text: #16191D;
+              --muted: #5B636B;
+              --line: #D5D9DC;
+              --hover: #F3F4F2;
+              --ring: #B8860B;
+              font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            }
+            .pm-root[data-theme='dark'] {
+              --surface: #181B1F;
+              --text: #ECEEF0;
+              --muted: #9AA3AB;
+              --line: #2B3036;
+              --hover: #22262B;
+              --ring: #F2B705;
+            }
+            .pm-surface { background: var(--surface); color: var(--text); }
+            .pm-muted { color: var(--muted); }
+            .pm-border { border-color: var(--line); }
+            .pm-key { background: var(--surface); border-color: var(--line); color: var(--text); }
+            .pm-key:hover:not(:disabled) { background: var(--hover); }
+            .pm-dot-on { background: var(--text); border-color: var(--text); }
+            .pm-focus:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+            @keyframes pm-shake {
+              0%, 100% { transform: translateX(0); }
+              25%, 75% { transform: translateX(-6px); }
+              50% { transform: translateX(6px); }
+            }
+            .pm-shake { animation: pm-shake 0.4s ease-in-out; }
+            @media (prefers-reduced-motion: reduce) {
+              .pm-shake { animation: none; }
+            }
+          `}</style>
+
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pin-title"
+            onMouseDown={(e) => e.stopPropagation()}
+            className="pm-surface pm-border relative grid max-h-[calc(100dvh-2rem)] w-full max-w-[22rem] overflow-hidden rounded-3xl border shadow-2xl md:max-w-[50rem] md:grid-cols-2"
+          >
+            {/* SUCCESS OVERLAY */}
+            {isSuccess && (
+              <div className="absolute inset-0 z-50 pm-surface flex flex-col items-center justify-center animate-[fadeIn_0.3s_ease-out]">
+                <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-4 animate-[popIn_0.4s_cubic-bezier(0.175,0.885,0.32,1.275)]">
+                  <CheckCircle size={40} />
+                </div>
+                <h3 className="text-xl font-bold mb-1">
+                  {isCreating || isConfirming ? 'PIN Tersimpan!' : 'Berhasil Masuk'}
+                </h3>
+                <p className="pm-muted text-xs">
+                  {isCreating || isConfirming ? 'Data telah diperbarui.' : 'Mengalihkan ke dashboard...'}
+                </p>
+              </div>
+            )}
+
+            {/* Sisi Kiri: Identitas Keamanan Dark Navy */}
+            <div
+              className="relative flex items-center gap-4 overflow-hidden bg-[#0E1B2E] p-5 text-white md:flex-col md:justify-center md:gap-0 md:p-10 md:text-center"
+              style={{
+                backgroundImage:
+                  'radial-gradient(60% 50% at 12% 0%, rgba(90,130,210,0.24), transparent 70%), radial-gradient(55% 45% at 100% 100%, rgba(90,130,210,0.14), transparent 70%)'
+              }}
+            >
+              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#F2B705] text-[#16191D] md:h-16 md:w-16 md:rounded-2xl shadow-sm">
+                {getIcon()}
+              </div>
+              <div className="md:mt-6">
+                <h2 id="pin-title" className="text-lg font-semibold md:text-2xl">
+                  {getTitle()}
+                </h2>
+                <p className="mt-1 text-sm text-[#8FA0B8] md:mt-2 md:text-base">
+                  {getLeftSubtitle()}
+                </p>
+              </div>
+            </div>
+
+            {/* Sisi Kanan: Keypad Interaktif */}
+            <div className="flex flex-col items-center p-6 md:p-10">
+              <p className="pm-muted text-sm">{getRightInstruction()}</p>
+
+              {/* Dot Display */}
+              <div
+                role="status"
+                aria-label={`${pinInput.length} dari 6 digit terisi`}
+                className={`mt-5 flex gap-3 ${shake ? 'pm-shake' : ''}`}
+              >
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`h-3.5 w-3.5 rounded-full border transition-colors ${
+                      i < pinInput.length
+                        ? pinError
+                          ? 'bg-red-500 border-red-500'
+                          : 'pm-dot-on'
+                        : 'pm-border'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              {/* Status / Alert Feedback */}
+              <p className="mt-4 h-5 text-sm text-center" aria-live="polite">
+                {pinError ? (
+                  <span className="text-red-600 dark:text-red-400 font-semibold">{pinError}</span>
+                ) : isPinLoading ? (
+                  <span className="pm-muted inline-flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin" />
+                    Menyimpan ke Database…
+                  </span>
+                ) : null}
+              </p>
+
+              {/* Keypad Grid 3 Kolom */}
+              <div className="mt-3 grid grid-cols-3 gap-3">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => handlePinInput(d)}
+                    disabled={isPinLoading || isSuccess}
+                    className="pm-focus pm-key grid h-14 w-14 place-items-center rounded-full border text-2xl font-medium transition active:scale-95 disabled:opacity-60 md:h-16 md:w-16 cursor-pointer"
+                  >
+                    {d}
+                  </button>
+                ))}
+                <span />
+                <button
+                  type="button"
+                  onClick={() => handlePinInput('0')}
+                  disabled={isPinLoading || isSuccess}
+                  className="pm-focus pm-key grid h-14 w-14 place-items-center rounded-full border text-2xl font-medium transition active:scale-95 disabled:opacity-60 md:h-16 md:w-16 cursor-pointer"
+                >
+                  0
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePinDelete}
+                  disabled={isPinLoading || isSuccess}
+                  aria-label="Hapus digit terakhir"
+                  className="pm-focus pm-muted grid h-14 w-14 place-items-center rounded-full hover:opacity-70 disabled:opacity-40 md:h-16 md:w-16 cursor-pointer"
+                >
+                  <Delete size={22} />
+                </button>
+              </div>
+
+              {/* Tombol Batal */}
+              <button
+                type="button"
+                onClick={handleBackFromPin}
+                disabled={isPinLoading || isSuccess}
+                className="pm-focus pm-muted mt-5 rounded-md px-3 py-1.5 text-sm font-medium hover:opacity-70 cursor-pointer"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* =========================================================================
+       TEMA 1: DESAIN LAMA (GRADASI WARNA SESUAI ROLE)
+       ========================================================================= */
     const gradientClass = getThemeGradient();
     const pinDotColor = getPinDotColor();
 
@@ -477,96 +700,99 @@ export const NameSelectionModal: React.FC<NameSelectionModalProps> = ({ onSelect
   return (
     <div className="h-full w-full flex flex-col bg-gray-50 dark:bg-gray-900 animate-[fadeIn_0.3s_ease-out]">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 px-6 py-6 border-b border-gray-200 dark:border-gray-700 shrink-0">
-        <div className="flex items-center gap-4 mb-6">
-          <button
-            onClick={onBack}
-            className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
-          >
-            <ArrowLeft size={24} />
-          </button>
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Siapa Anda?</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Pilih nama karyawan untuk melanjutkan.</p>
-          </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="relative">
-          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Cari nama karyawan..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-gray-100 dark:bg-gray-700 border-none rounded-xl pl-12 pr-4 py-3.5 text-gray-900 dark:text-white placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 transition-all font-medium"
-          />
-          {searchTerm && (
+      <div className="bg-white dark:bg-gray-800 px-4 sm:px-6 py-3.5 sm:py-5 border-b border-gray-200 dark:border-gray-700 shrink-0 shadow-xs">
+        <div className="max-w-7xl mx-auto w-full">
+          <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
             <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 bg-gray-200 dark:bg-gray-600 rounded-full text-gray-500 dark:text-gray-300"
+              onClick={onBack}
+              className="p-1.5 sm:p-2 -ml-1 sm:-ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
             >
-              <X size={14} />
+              <ArrowLeft size={22} className="sm:w-6 sm:h-6" />
             </button>
-          )}
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Siapa Anda?</h2>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Pilih nama karyawan untuk melanjutkan.</p>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="relative">
+            <Search size={18} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Cari nama karyawan..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-gray-100 dark:bg-gray-700 border-none rounded-xl pl-10 sm:pl-12 pr-4 py-2.5 sm:py-3 text-sm sm:text-base text-gray-900 dark:text-white placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 bg-gray-200 dark:bg-gray-600 rounded-full text-gray-500 dark:text-gray-300"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 min-h-0">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 min-h-0 custom-scrollbar">
+        <div className="max-w-7xl mx-auto w-full">
+          {/* Active Filters Display */}
+          {(role || searchTerm) && (
+            <div className="flex items-center gap-2 mb-3 sm:mb-4 overflow-x-auto no-scrollbar">
+              {role && (
+                <div className="flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold whitespace-nowrap border border-blue-100 dark:border-blue-800">
+                  <Filter size={12} />
+                  <span>Role: {role}</span>
+                </div>
+              )}
+              <div className="flex-1"></div>
+              <p className="text-xs text-gray-400 whitespace-nowrap">
+                {filteredEmployees.length} karyawan ditemukan
+              </p>
+            </div>
+          )}
 
-        {/* Active Filters Display */}
-        {(role || searchTerm) && (
-          <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar">
-            {role && (
-              <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold whitespace-nowrap border border-blue-100 dark:border-blue-800">
-                <Filter size={12} />
-                <span>Role: {role}</span>
+          {loading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+              <Loader2 size={32} className="animate-spin mb-3 text-blue-500" />
+              <p className="text-sm font-medium">Memuat data karyawan...</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center px-6">
+              <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center text-red-500 mb-4">
+                <User size={32} />
               </div>
-            )}
-            <div className="flex-1"></div>
-            <p className="text-xs text-gray-400 whitespace-nowrap">
-              {filteredEmployees.length} karyawan ditemukan
-            </p>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-            <Loader2 size={32} className="animate-spin mb-3 text-blue-500" />
-            <p className="text-sm font-medium">Memuat data karyawan...</p>
-          </div>
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center h-64 text-center px-6">
-            <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center text-red-500 mb-4">
-              <User size={32} />
+              <p className="text-gray-800 dark:text-gray-200 font-bold mb-1">Terjadi Kesalahan</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{error}</p>
+              <button onClick={fetchEmployees} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-bold text-gray-600 dark:text-gray-300">Coba Lagi</button>
             </div>
-            <p className="text-gray-800 dark:text-gray-200 font-bold mb-1">Terjadi Kesalahan</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{error}</p>
-            <button onClick={fetchEmployees} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-bold text-gray-600 dark:text-gray-300">Coba Lagi</button>
-          </div>
-        ) : filteredEmployees.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-center px-6">
-            <div className="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center text-gray-300 mb-4">
-              <Search size={32} />
+          ) : filteredEmployees.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center px-6">
+              <div className="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center text-gray-300 mb-4">
+                <Search size={32} />
+              </div>
+              <p className="text-gray-800 dark:text-gray-200 font-bold mb-1">Tidak Ditemukan</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Tidak ada karyawan dengan nama "{searchTerm}" {role ? `di role ${role}` : ''}.
+              </p>
             </div>
-            <p className="text-gray-800 dark:text-gray-200 font-bold mb-1">Tidak Ditemukan</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Tidak ada karyawan dengan nama "{searchTerm}" {role ? `di role ${role}` : ''}.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pb-20">
-            {filteredEmployees.map((emp) => (
-              <EmployeeButton
-                  key={emp.id}
-                  emp={emp}
-                  role={role}
-                  onClick={() => handleEmployeeClick(emp)}
-                />
-            ))}
-          </div>
-        )}
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3.5 pb-20">
+              {filteredEmployees.map((emp) => (
+                <EmployeeButton
+                    key={emp.id}
+                    emp={emp}
+                    role={role}
+                    onClick={() => handleEmployeeClick(emp)}
+                  />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <style>{`

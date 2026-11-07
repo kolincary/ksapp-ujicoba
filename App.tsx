@@ -12,9 +12,12 @@ import { NameSelectionModal } from './components/NameSelectionModal';
 import { AutoUpdateHandler } from './components/AutoUpdateHandler'; // NEW IMPORT
 import { UserRole, UserPermissions, UserPins, AuthStep, AdminUser, UserManualInputAccess, ProfileConfig } from './types';
 import { supabase } from './services/supabaseClient';
+import { db } from './services/firebaseClient';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { startDeviceTracking, stopDeviceTracking } from './services/deviceTracker';
 import { initGineeGlobalSyncScheduler } from './services/gineeGlobalSyncService';
-import { Ban, LogOut, User, Crown, Search, X, Lock, Target } from 'lucide-react';
+import { Ban, LogOut, User, Crown, Search, X, Lock, Target, ChevronRight, ArrowRight } from 'lucide-react';
+import { syncUserLoginThemeFromCloud, STORAGE_KEY_LOGIN_THEME } from './services/themeSyncService';
 
 const DEFAULT_PROFILE_CONFIG: ProfileConfig[] = [
   { role: 'PICKER', is_active: true, sort_order: 1 },
@@ -201,6 +204,32 @@ const App: React.FC = () => {
     };
 
     fetchSupabaseData();
+
+    // 1b. Realtime cross-device sync for profiles config via Firestore
+    let unsubProfileFs: (() => void) | null = null;
+    if (db) {
+      try {
+        unsubProfileFs = onSnapshot(doc(db, 'system_config', 'profiles_config'), (snap) => {
+          if (snap.exists()) {
+            const fsData = snap.data();
+            if (fsData?.config && Array.isArray(fsData.config) && fsData.config.length > 0) {
+              const existingRoles = fsData.config.map((p: any) => p.role);
+              const missingProfiles = DEFAULT_PROFILE_CONFIG.filter(p => !existingRoles.includes(p.role));
+              const merged = [...fsData.config, ...missingProfiles];
+              setProfileConfig(merged);
+              localStorage.setItem(STORAGE_KEY_PROFILE_CONFIG, JSON.stringify(merged));
+              window.dispatchEvent(new CustomEvent('kalindo_profile_config_updated', { detail: merged }));
+            }
+          }
+        }, (err) => {
+          console.warn("Notice: Firestore profiles_config sync:", err);
+        });
+      } catch (e) {}
+    }
+
+    return () => {
+      if (unsubProfileFs) unsubProfileFs();
+    };
   }, []);
 
   // 2. Initialize Theme & Session & Settings
@@ -657,6 +686,9 @@ const App: React.FC = () => {
     }
     // -----------------------------------
 
+    // Sync cloud-saved login theme for this user
+    syncUserLoginThemeFromCloud(email).catch(() => {});
+
     if (email === 'dev@kalindo.com') {
       setAuthStep('ADMIN_LOGIN');
     } else {
@@ -701,6 +733,9 @@ const App: React.FC = () => {
     setEmployeeName(name);
     localStorage.setItem(STORAGE_KEY_EMPLOYEE_NAME, name);
 
+    // Sync cloud-saved login theme for this specific employee
+    syncUserLoginThemeFromCloud(userEmail, name).catch(() => {});
+
     // Fetch target for this employee
     try {
       const { data } = await supabase
@@ -725,6 +760,14 @@ const App: React.FC = () => {
     const savedTheme = localStorage.getItem(STORAGE_KEY_THEME);
     const savedScanPos = localStorage.getItem(STORAGE_KEY_SCAN_POS);
     const savedDeviceId = localStorage.getItem('kalindo_device_id');
+    const savedLoginTheme = localStorage.getItem(STORAGE_KEY_LOGIN_THEME);
+    const savedLoginThemeKeys: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(STORAGE_KEY_LOGIN_THEME)) {
+        savedLoginThemeKeys[k] = localStorage.getItem(k) || '';
+      }
+    }
     const emailToLog = userEmail;
     const adminToLog = currentAdmin?.username;
 
@@ -754,6 +797,10 @@ const App: React.FC = () => {
       if (savedTheme) localStorage.setItem(STORAGE_KEY_THEME, savedTheme);
       if (savedScanPos) localStorage.setItem(STORAGE_KEY_SCAN_POS, savedScanPos);
       if (savedDeviceId) localStorage.setItem('kalindo_device_id', savedDeviceId);
+      if (savedLoginTheme) localStorage.setItem(STORAGE_KEY_LOGIN_THEME, savedLoginTheme);
+      Object.entries(savedLoginThemeKeys).forEach(([k, v]) => {
+        if (v) localStorage.setItem(k, v);
+      });
     } catch (e) {
       console.warn('Storage clear notice:', e);
     }
@@ -1094,79 +1141,177 @@ const App: React.FC = () => {
             initialView={initialView}
             profileConfig={profileConfig}
             onSaveProfileConfig={handleSaveProfileConfig}
+            onOpenGodMode={GOD_MODE_USERS.includes(userEmail) ? () => setAuthStep('GOD_MODE_SELECTION') : undefined}
             onExitToProfile={() => setAuthStep('ROLE_SELECTION')}
           />
         )}
 
         {/* GOD MODE SELECTION */}
         {authStep === 'GOD_MODE_SELECTION' && (
-          <div className="h-full w-full flex flex-col items-center justify-center p-4 md:p-6 animate-[fadeIn_0.3s_ease-out]">
-            <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700 p-6 text-center flex flex-col max-h-[85vh]">
-              <div className="shrink-0">
-                <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center text-amber-600 dark:text-amber-500 mx-auto mb-4">
-                  <Crown size={32} />
-                </div>
-                <h2 className="text-xl font-bold mb-1">Developer Mode</h2>
-                <p className="text-gray-500 dark:text-gray-400 mb-4 text-xs">Anda memiliki akses khusus.</p>
-              </div>
-
-              <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-hidden">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#0E1B2E]/70 dark:bg-black/75 backdrop-blur-md animate-[fadeIn_0.25s_ease-out] select-none">
+            <div className="w-full max-w-lg max-h-[92vh] sm:max-h-[88vh] bg-white dark:bg-[#16191D] rounded-3xl sm:rounded-[2rem] border border-gray-200/80 dark:border-gray-800 shadow-[0_24px_60px_-15px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden transition-all duration-300">
+              
+              {/* Header Modal */}
+              <div className="p-5 sm:p-6 pb-4 sm:pb-5 text-center shrink-0 border-b border-gray-100 dark:border-gray-800/80 relative bg-gradient-to-b from-amber-50/50 via-white to-white dark:from-amber-950/20 dark:via-[#16191D] dark:to-[#16191D]">
                 <button
-                  onClick={() => handleGodModeSelect(null)}
-                  className="w-full py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-2xl font-bold flex items-center justify-center gap-2 transition-colors shrink-0 text-sm"
+                  onClick={handleLogout}
+                  title="Kembali ke Login"
+                  className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
                 >
-                  <User size={18} />
-                  User Biasa ({userEmail})
+                  <X size={18} />
                 </button>
 
-                <div className="relative shrink-0 py-2">
-                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-700"></div></div>
-                  <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-white dark:bg-gray-800 px-2 text-gray-400">Atau Masuk Sebagai</span></div>
+                <div className="relative inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-300 text-[#0E1B2E] shadow-lg shadow-amber-500/25 mb-3">
+                  <Crown size={28} className="drop-shadow-xs" />
+                  <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500 border-2 border-white dark:border-[#16191D]"></span>
+                  </span>
                 </div>
 
-                {/* SEARCH INPUT */}
-                <div className="relative shrink-0 mb-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300/50 dark:border-amber-700/50">
+                    Akses Khusus Developer
+                  </span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                  Developer Mode
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">
+                  Pilih target akun untuk mensimulasikan role, atau masuk langsung sebagai developer asli.
+                </p>
+              </div>
+
+              {/* Body Modal Content */}
+              <div className="p-4 sm:p-6 flex flex-col flex-1 min-h-0 overflow-hidden space-y-3.5">
+                
+                {/* Opsi User Asli Developer */}
+                <div>
+                  <label className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 block mb-1.5">
+                    Akun Developer Saat Ini
+                  </label>
+                  <button
+                    onClick={() => handleGodModeSelect(null)}
+                    className="group w-full p-3 sm:p-3.5 bg-gradient-to-r from-gray-50 to-white hover:from-gray-100 hover:to-gray-50 dark:from-gray-800/60 dark:to-gray-800/40 dark:hover:from-gray-800 dark:hover:to-gray-800/80 border border-gray-200 dark:border-gray-700/80 rounded-2xl flex items-center justify-between transition-all duration-200 hover:shadow-sm active:scale-[0.99] cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 font-bold shadow-xs">
+                        <User size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate">
+                            User Asli
+                          </span>
+                          <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300/40 dark:border-emerald-700/40">
+                            Aktif
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5 font-mono">
+                          {userEmail}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform shrink-0">
+                      <span className="hidden sm:inline">Lanjutkan</span>
+                      <ChevronRight size={16} />
+                    </div>
+                  </button>
+                </div>
+
+                {/* Divider */}
+                <div className="relative shrink-0 py-1">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-100 dark:border-gray-800"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[10px] font-bold uppercase tracking-wider">
+                    <span className="bg-white dark:bg-[#16191D] px-3 text-gray-400 dark:text-gray-500">
+                      Atau Simulasi Akun Lain
+                    </span>
+                  </div>
+                </div>
+
+                {/* Search Bar Input */}
+                <div className="relative shrink-0">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={15} />
                   <input
                     type="text"
-                    placeholder="Cari user target..."
+                    placeholder="Cari user target akun..."
                     value={godModeSearch}
                     onChange={(e) => setGodModeSearch(e.target.value)}
-                    className="w-full pl-9 pr-9 py-2.5 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 dark:text-white transition-all text-xs"
+                    className="w-full pl-9 pr-9 py-2.5 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 dark:focus:ring-amber-400 text-xs sm:text-sm text-gray-900 dark:text-white transition-all placeholder:text-gray-400 shadow-2xs"
                   />
                   {godModeSearch && (
                     <button
                       onClick={() => setGodModeSearch('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5"
                     >
                       <X size={14} />
                     </button>
                   )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                {/* Scrollable User Account List */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-[140px] max-h-[320px]">
                   {Object.keys(userPermissions)
                     .filter(email => email !== userEmail && email.toLowerCase().includes(godModeSearch.toLowerCase()))
-                    .map(email => (
-                      <button
-                        key={email}
-                        onClick={() => handleGodModeSelect(email)}
-                        className="w-full py-2.5 px-3 bg-amber-50 dark:bg-amber-900/10 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-xl font-medium text-xs text-left transition-colors flex items-center justify-between group shrink-0"
-                      >
-                        <span className="truncate mr-2">{email}</span>
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] bg-amber-200 dark:bg-amber-800 px-2 py-0.5 rounded font-bold whitespace-nowrap">GOD MODE</span>
-                      </button>
-                    ))}
+                    .map(email => {
+                      const roles = userPermissions[email] || [];
+                      const initial = email.charAt(0).toUpperCase();
+
+                      return (
+                        <button
+                          key={email}
+                          onClick={() => handleGodModeSelect(email)}
+                          className="w-full p-2.5 sm:p-3 bg-white hover:bg-amber-50/70 dark:bg-gray-800/40 dark:hover:bg-amber-950/20 border border-gray-100 hover:border-amber-200 dark:border-gray-800 dark:hover:border-amber-800/50 rounded-xl text-left transition-all duration-150 flex items-center justify-between group shrink-0 active:scale-[0.99] cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-bold text-xs flex items-center justify-center shrink-0 border border-amber-200 dark:border-amber-700/50">
+                              {initial}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100 truncate group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors">
+                                {email}
+                              </p>
+                              {roles.length > 0 && (
+                                <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate mt-0.5">
+                                  {roles.slice(0, 3).join(', ')}{roles.length > 3 ? ` +${roles.length - 3}` : ''}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <span className="opacity-0 group-hover:opacity-100 transition-all text-[10px] bg-amber-500 text-[#0E1B2E] px-2.5 py-1 rounded-lg font-bold whitespace-nowrap shadow-xs flex items-center gap-1 shrink-0">
+                            <span>Simulasi</span>
+                            <ArrowRight size={11} />
+                          </span>
+                        </button>
+                      );
+                    })}
+
                   {Object.keys(userPermissions).filter(email => email !== userEmail && email.toLowerCase().includes(godModeSearch.toLowerCase())).length === 0 && (
-                    <p className="text-xs text-gray-400 text-center py-4">User tidak ditemukan.</p>
+                    <div className="text-center py-8">
+                      <p className="text-xs text-gray-400 dark:text-gray-500">Tidak ada user yang cocok dengan pencarian.</p>
+                    </div>
                   )}
+                </div>
+
+                {/* Footer Exit Action */}
+                <div className="pt-2 text-center shrink-0 border-t border-gray-100 dark:border-gray-800/80">
+                  <button
+                    onClick={handleLogout}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors px-3 py-1 rounded-lg hover:bg-red-50/60 dark:hover:bg-red-950/20 cursor-pointer"
+                  >
+                    <LogOut size={13} />
+                    <span>Keluar Akun Developer</span>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         )}
-
-        {/* Role Selection */}
+        
+{/* Role Selection */}
         {(authStep === 'ROLE_SELECTION') && (
           <div className="h-full w-full animate-[fadeIn_0.3s_ease-out] flex-1 min-h-0">
             <RoleSelector
@@ -1177,6 +1322,7 @@ const App: React.FC = () => {
               onLogout={handleLogout}
               permissions={effectivePermissions}
               profileConfig={profileConfig}
+              onOpenGodMode={GOD_MODE_USERS.includes(userEmail) ? () => setAuthStep('GOD_MODE_SELECTION') : undefined}
             />
           </div>
         )}
