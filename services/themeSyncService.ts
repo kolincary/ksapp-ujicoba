@@ -6,11 +6,20 @@ export const STORAGE_KEY_LOGIN_THEME = 'kalindo_login_theme';
 export const DEFAULT_LOGIN_THEME: LoginThemeVariant = 'tema_1';
 
 /**
- * Get the currently active login theme for this device.
- * Defaults to 'tema_1' (Desain Lama).
+ * Get the currently active login theme for this device or specific user.
+ * Defaults to 'tema_1' (Desain Klasik Biru).
  */
-export const getActiveLoginTheme = (): LoginThemeVariant => {
+export const getActiveLoginTheme = (userEmail?: string): LoginThemeVariant => {
   try {
+    if (userEmail) {
+      const userKey = userEmail.toLowerCase().trim();
+      const userSaved = localStorage.getItem(`${STORAGE_KEY_LOGIN_THEME}_${userKey}`);
+      if (userSaved === 'tema_1' || userSaved === 'tema_2') {
+        return userSaved;
+      }
+      // Jika user spesifik ini belum pernah memilih tema, SELALU DEFAULT ke 'tema_1' (Biru)
+      return DEFAULT_LOGIN_THEME;
+    }
     const saved = localStorage.getItem(STORAGE_KEY_LOGIN_THEME);
     if (saved === 'tema_1' || saved === 'tema_2') {
       return saved;
@@ -98,6 +107,12 @@ export const syncUserLoginThemeFromCloud = async (
         if (cloudTheme === 'tema_1' || cloudTheme === 'tema_2') {
           // Update device theme with user's cloud preference
           localStorage.setItem(STORAGE_KEY_LOGIN_THEME, cloudTheme);
+          if (userEmail) {
+            localStorage.setItem(`${STORAGE_KEY_LOGIN_THEME}_${userEmail.toLowerCase().trim()}`, cloudTheme);
+          }
+          if (employeeName) {
+            localStorage.setItem(`${STORAGE_KEY_LOGIN_THEME}_${employeeName.toLowerCase().trim()}`, cloudTheme);
+          }
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event('kalindo_theme_changed'));
           }

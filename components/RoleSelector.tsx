@@ -302,7 +302,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Active Login Theme (defaults to 'tema_1')
-  const [activeTheme, setActiveTheme] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+  const [activeTheme, setActiveTheme] = useState<LoginThemeVariant>(() => getActiveLoginTheme(userEmail));
 
   const userKey = userEmail ? userEmail.toLowerCase().trim() : 'guest';
   const THEME_CHOSEN_KEY = `kalindo_theme_chosen_${userKey}`;
@@ -315,7 +315,18 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
       return false;
     }
   });
-  const [selectedThemeOption, setSelectedThemeOption] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
+  const [selectedThemeOption, setSelectedThemeOption] = useState<LoginThemeVariant>(() => getActiveLoginTheme(userEmail));
+
+  // Sync theme if updated from cloud or another tab
+  useEffect(() => {
+    const handleThemeChange = () => {
+      const updatedTheme = getActiveLoginTheme(userEmail);
+      setActiveTheme(updatedTheme);
+      setSelectedThemeOption(updatedTheme);
+    };
+    window.addEventListener('kalindo_theme_changed', handleThemeChange);
+    return () => window.removeEventListener('kalindo_theme_changed', handleThemeChange);
+  }, [userEmail]);
 
   // 1. Preview tema secara real-time saat opsi diklik (tanpa menutup modal)
   const handlePreviewTheme = (theme: LoginThemeVariant) => {
@@ -814,21 +825,24 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           <picture className="w-full h-full block">
             <source
               media="(max-width: 639px)"
-              srcSet="/assets/dashboard-hero-mobile.webp"
+              srcSet="/assets/dashboard-hero-mobile-internal.webp"
               type="image/webp"
             />
             <source
               media="(min-width: 640px)"
-              srcSet="/assets/dashboard-hero.webp"
+              srcSet="/assets/dashboard-hero-internal.webp"
               type="image/webp"
             />
             <img
-              src="/assets/dashboard-hero.webp"
+              src="/assets/dashboard-hero-internal.webp"
               alt="Dashboard Warehouse Illustration"
               className="w-full h-full object-cover object-right"
               referrerPolicy="no-referrer"
               onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
+                const target = e.target as HTMLImageElement;
+                if (!target.src.includes('dashboard-hero.webp')) {
+                  target.src = '/assets/dashboard-hero.webp';
+                }
               }}
             />
           </picture>
