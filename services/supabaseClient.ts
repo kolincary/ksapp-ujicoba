@@ -78,11 +78,20 @@ export const getConfig = (): ActiveSupabaseConfig => {
     }
   }
 
+  let backupUrl = DEFAULT_NEW_URL;
+  let backupKey = DEFAULT_NEW_KEY;
+  try {
+    const sUrl = localStorage.getItem('active_backup_supabase_url');
+    const sKey = localStorage.getItem('active_backup_supabase_key');
+    if (sUrl && sUrl.trim().startsWith('http')) backupUrl = sUrl.trim();
+    if (sKey && sKey.trim().length > 10) backupKey = sKey.trim();
+  } catch (e) {}
+
   return {
     url: activeUrl,
     key: activeKey,
-    newUrl: DEFAULT_NEW_URL,
-    newKey: DEFAULT_NEW_KEY,
+    newUrl: backupUrl,
+    newKey: backupKey,
     specialOldUrl: DEFAULT_SPECIAL_OLD_URL,
     specialOldKey: DEFAULT_SPECIAL_OLD_KEY,
     projectRef: extractProjectRef(activeUrl),

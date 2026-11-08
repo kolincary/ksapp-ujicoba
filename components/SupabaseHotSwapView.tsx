@@ -16,7 +16,10 @@ import {
   Trash2,
   ArrowRight,
   Loader2,
-  Key
+  Key,
+  Clock,
+  AlertTriangle,
+  History
 } from 'lucide-react';
 import { 
   getConfig, 
@@ -25,6 +28,15 @@ import {
   extractProjectRef 
 } from '../services/supabaseClient';
 import { MASTER_SUPABASE_SQL_SCHEMA } from '../services/supabaseMasterSchema';
+import { 
+  getBackupSupabaseConfig, 
+  setBackupSupabaseConfig, 
+  testBackupConnection, 
+  purgeBackupOlderThan7Days, 
+  calculate7DayRetentionCutoff, 
+  RETENTION_7_DAYS_SQL,
+  STORAGE_LAST_PURGE
+} from '../services/dualSupabaseService';
 
 interface ParsedPostgresUri {
   username: string;
@@ -69,6 +81,30 @@ export const SupabaseHotSwapView: React.FC = () => {
   const [activeUrl, setActiveUrl] = useState(currentConfig.url);
   const [activeKey, setActiveKey] = useState(currentConfig.key);
   const [activeTestStatus, setActiveTestStatus] = useState<{ loading: boolean; success?: boolean; message?: string; count?: number }>({ loading: false });
+
+  // =========================================================================
+  // SUPABASE CADANGAN (BACKUP REAL-TIME 7 HARI) STATE
+  // =========================================================================
+  const backupConfig = useMemo(() => getBackupSupabaseConfig(), []);
+  const [backupUrl, setBackupUrl] = useState(backupConfig.url);
+  const [backupKey, setBackupKey] = useState(backupConfig.key);
+  const [backupTestStatus, setBackupTestStatus] = useState<{ loading: boolean; success?: boolean; message?: string; count?: number; latencyMs?: number }>({ loading: false });
+  const [backupSaveSuccess, setBackupSaveSuccess] = useState('');
+  
+  // 7-day retention state
+  const [isPurgingBackup, setIsPurgingBackup] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<{ success?: boolean; message?: string; deletedCount?: number } | null>(null);
+  const [copiedRetentionSql, setCopiedRetentionSql] = useState(false);
+  const [lastPurgeInfo, setLastPurgeInfo] = useState<any>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_LAST_PURGE);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const retentionCutoff = useMemo(() => calculate7DayRetentionCutoff(7), []);
 
   // Schema Copy State
   const [copiedSchema, setCopiedSchema] = useState(false);
@@ -134,9 +170,10 @@ export const SupabaseHotSwapView: React.FC = () => {
     }
   }, [targetParsed.projectRef]);
 
-  // Initial Test of Active Connection
+  // Initial Test of Active Connection & Backup Connection
   useEffect(() => {
     handleTestActiveConnection();
+    handleTestBackupConnection();
   }, []);
 
   const handleTestActiveConnection = async () => {
@@ -148,6 +185,66 @@ export const SupabaseHotSwapView: React.FC = () => {
       message: res.message,
       count: res.rowCount
     });
+  };
+
+  const handleTestBackupConnection = async () => {
+    setBackupTestStatus({ loading: true });
+    const res = await testBackupConnection(backupUrl, backupKey);
+    setBackupTestStatus({
+      loading: false,
+      success: res.success,
+      message: res.message,
+      count: res.rowCount,
+      latencyMs: res.latencyMs
+    });
+  };
+
+  const handleSaveBackupConfig = () => {
+    if (!backupUrl.trim() || !backupKey.trim()) {
+      alert('URL dan Anon Key Supabase Cadangan tidak boleh kosong.');
+      return;
+    }
+    setBackupSupabaseConfig(backupUrl, backupKey);
+    setBackupSaveSuccess('Konfigurasi Supabase Cadangan berhasil disimpan!');
+    setTimeout(() => setBackupSaveSuccess(''), 4000);
+    handleTestBackupConnection();
+  };
+
+  const handleManualPurgeBackup = async () => {
+    if (!window.confirm(`Konfirmasi Pembersihan Data > 7 Hari:\n\nProses ini HANYA akan menghapus data pada SUPABASE CADANGAN yang discan sebelum ${retentionCutoff.cutoffDateStr}.\nData di Supabase VPS TIDAK AKAN DIHAPUS.\n\nLanjutkan pembersihan?`)) {
+      return;
+    }
+    setIsPurgingBackup(true);
+    setPurgeResult(null);
+    const res = await purgeBackupOlderThan7Days(7);
+    setIsPurgingBackup(false);
+    setPurgeResult(res);
+    try {
+      const saved = localStorage.getItem(STORAGE_LAST_PURGE);
+      if (saved) setLastPurgeInfo(JSON.parse(saved));
+    } catch {}
+    handleTestBackupConnection();
+  };
+
+  const handlePromoteBackupToPrimary = async () => {
+    if (!backupUrl.trim() || !backupKey.trim()) {
+      alert('Supabase Cadangan belum dikonfigurasi.');
+      return;
+    }
+    const confirmMsg = `PERINGATAN HOT-SWAP DARURAT:\n\nAnda akan mengalihkan aplikasi untuk membaca & menulis ke SUPABASE CADANGAN (${extractProjectRef(backupUrl)}) sebagai Database Utama.\n\nGunakan ini hanya jika Supabase VPS sedang down/mati listrik.\n\nApakah Anda yakin ingin switch sekarang?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    await setActiveSupabaseCredentials(backupUrl, backupKey, false, 'Admin');
+    setActiveUrl(backupUrl);
+    setActiveKey(backupKey);
+    handleTestActiveConnection();
+    alert(`Berhasil beralih ke Supabase Cadangan!\nAplikasi sekarang terhubung ke: ${backupUrl}`);
+  };
+
+  const handleCopyRetentionSql = () => {
+    navigator.clipboard.writeText(RETENTION_7_DAYS_SQL);
+    setCopiedRetentionSql(true);
+    setTimeout(() => setCopiedRetentionSql(false), 3000);
   };
 
   const handleCopySchema = () => {
@@ -247,30 +344,254 @@ export const SupabaseHotSwapView: React.FC = () => {
             </p>
           </div>
 
-          {/* Active Status Badge */}
-          <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-4 min-w-[280px]">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-200">Database Aktif</span>
-              <div className="flex items-center gap-1.5">
-                <span className={`w-2.5 h-2.5 rounded-full ${activeTestStatus.success ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`}></span>
-                <span className="text-xs font-bold text-emerald-300">
-                  {activeTestStatus.success ? 'ONLINE' : 'CONNECTING'}
+          {/* Dual Database Status Badges */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Primary VPS Badge */}
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-4 min-w-[240px]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-200">1. Database Utama (VPS)</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${activeTestStatus.success ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`}></span>
+                  <span className="text-xs font-bold text-emerald-300">
+                    {activeTestStatus.success ? 'ONLINE' : 'CONNECTING'}
+                  </span>
+                </div>
+              </div>
+              <div className="text-sm font-mono font-bold text-white truncate">
+                {extractProjectRef(activeUrl)}
+              </div>
+              <div className="text-[11px] text-blue-200/70 truncate mt-0.5">
+                {activeUrl.includes('trycloudflare') ? `${activeUrl} (Tunnel)` : activeUrl}
+              </div>
+              {activeTestStatus.count !== undefined && (
+                <div className="text-[11px] font-bold text-emerald-300 mt-2 pt-2 border-t border-white/10 flex items-center justify-between">
+                  <span>Data Scan VPS:</span>
+                  <span className="font-mono text-xs">{activeTestStatus.count.toLocaleString()} rows</span>
+                </div>
+              )}
+            </div>
+
+            {/* Secondary Backup Badge */}
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-4 min-w-[240px]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-200">2. Supabase Cadangan</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${backupTestStatus.success ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
+                  <span className="text-xs font-bold text-amber-300">
+                    {backupTestStatus.success ? 'STANDBY (7 HARI)' : 'CHECKING'}
+                  </span>
+                </div>
+              </div>
+              <div className="text-sm font-mono font-bold text-white truncate">
+                {extractProjectRef(backupUrl)}
+              </div>
+              <div className="text-[11px] text-amber-200/70 truncate mt-0.5">
+                Dual-Write Real-Time (Bg)
+              </div>
+              {backupTestStatus.count !== undefined && (
+                <div className="text-[11px] font-bold text-amber-300 mt-2 pt-2 border-t border-white/10 flex items-center justify-between">
+                  <span>Data Cadangan:</span>
+                  <span className="font-mono text-xs">{backupTestStatus.count.toLocaleString()} rows</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* =========================================================================
+          SECTION: SUPABASE CADANGAN (DUAL-WRITE REAL-TIME & RETENSI 7 HARI)
+          ========================================================================= */}
+      <div className="bg-gradient-to-br from-white to-blue-50/40 dark:from-gray-800 dark:to-gray-900 rounded-3xl border-2 border-blue-200/80 dark:border-blue-900/60 p-6 sm:p-7 shadow-sm space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-blue-100 dark:border-gray-700/60 pb-5">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-black shadow-md shadow-blue-500/20">
+              <Shield size={24} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                  Supabase Cadangan (Dual-Write Real-Time)
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  Retensi 7 Hari Aktif
                 </span>
               </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Setiap scan barcode disalin otomatis ke database cadangan ini di latar belakang tanpa mengurangi kecepatan scanner gudang.
+              </p>
             </div>
-            <div className="text-sm font-mono font-bold text-white truncate">
-              {extractProjectRef(activeUrl)}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleTestBackupConnection}
+              disabled={backupTestStatus.loading}
+              className="px-3.5 py-2 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-200 transition-all flex items-center gap-2 shadow-2xs active:scale-95 cursor-pointer"
+            >
+              {backupTestStatus.loading ? <Loader2 size={14} className="animate-spin text-blue-600" /> : <RefreshCw size={14} className="text-blue-600" />}
+              Tes Koneksi Cadangan
+            </button>
+            <button
+              onClick={handlePromoteBackupToPrimary}
+              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
+              title="Gunakan database cadangan sebagai database utama jika VPS mati"
+            >
+              <Zap size={14} />
+              Hot-Swap ke Cadangan
+            </button>
+          </div>
+        </div>
+
+        {/* 2-Column Content: Left = Credentials Config, Right = 7-Day Retention Manager */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          {/* Left: Input URL & Anon Key Cadangan */}
+          <div className="bg-white dark:bg-gray-900/60 rounded-2xl border border-gray-200/90 dark:border-gray-800 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                <Database size={15} className="text-blue-600" /> Kredensial Supabase Cadangan
+              </span>
+              {backupUrl && (
+                <a
+                  href={`https://supabase.com/dashboard/project/${extractProjectRef(backupUrl)}/settings/api`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-bold"
+                >
+                  Buka Dashboard Supabase <ExternalLink size={11} />
+                </a>
+              )}
             </div>
-            <div className="text-[11px] text-blue-200/70 truncate mt-0.5">
-              {activeUrl.includes('trycloudflare') ? `${activeUrl} (VPS HTTPS Tunnel)` : activeUrl}
+
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                URL Supabase Cadangan
+              </label>
+              <input
+                type="text"
+                value={backupUrl}
+                onChange={(e) => setBackupUrl(e.target.value)}
+                placeholder="https://abcdefghijk.supabase.co"
+                className="w-full px-3.5 py-2.5 mt-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-            {activeTestStatus.count !== undefined && (
-              <div className="text-[11px] font-bold text-emerald-300 mt-2 pt-2 border-t border-white/10 flex items-center justify-between">
-                <span>Total Data Scan:</span>
-                <span className="font-mono text-xs">{activeTestStatus.count.toLocaleString()} rows</span>
+
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                Anon Key Supabase Cadangan
+              </label>
+              <textarea
+                value={backupKey}
+                onChange={(e) => setBackupKey(e.target.value)}
+                placeholder="Paste Anon Public Key Supabase Cadangan..."
+                rows={3}
+                className="w-full px-3.5 py-2 mt-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-[11px] font-mono outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            </div>
+
+            {backupTestStatus.message && (
+              <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2.5 ${
+                backupTestStatus.success 
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+              }`}>
+                {backupTestStatus.success ? <CheckCircle size={16} className="shrink-0 text-emerald-600" /> : <AlertTriangle size={16} className="shrink-0 text-rose-600" />}
+                <div className="flex-1">
+                  <span>{backupTestStatus.message}</span>
+                  {backupTestStatus.count !== undefined && (
+                    <div className="text-[11px] font-mono opacity-80 mt-0.5">
+                      Data tersimpan di cadangan saat ini: <b>{backupTestStatus.count.toLocaleString()} baris</b>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
+
+            {backupSaveSuccess && (
+              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold flex items-center gap-2">
+                <Check size={16} className="text-emerald-600 shrink-0" />
+                {backupSaveSuccess}
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveBackupConfig}
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 active:scale-98 cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Check size={15} /> Simpan Konfigurasi Supabase Cadangan
+            </button>
           </div>
+
+          {/* Right: 7-Day Retention Policy & Manual Purge */}
+          <div className="bg-white dark:bg-gray-900/60 rounded-2xl border border-gray-200/90 dark:border-gray-800 p-5 space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                  <Clock size={15} className="text-indigo-600" /> Kebijakan Retensi 7 Hari Otomatis
+                </span>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                  Hemat Kuota
+                </span>
+              </div>
+
+              <div className="p-3.5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/70 dark:border-blue-900/40 rounded-xl space-y-2">
+                <div className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">
+                  Database cadangan hanya menampung data operasional <b>7 hari terakhir</b> agar kuota tidak jebol. Data yang discan sebelum:
+                </div>
+                <div className="flex items-center gap-2 font-mono font-bold text-sm text-blue-700 dark:text-blue-300 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <span>📅 Cutoff: {retentionCutoff.cutoffDateStr} (00:00:00)</span>
+                </div>
+                <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                  ⚠️ <b>Penting:</b> Penghapusan ini <b>HANYA</b> berlaku pada Supabase Cadangan. Seluruh data di <b>Supabase VPS tetap utuh 100% selamanya</b>.
+                </div>
+              </div>
+
+              {/* Status Pembersihan Terakhir */}
+              {lastPurgeInfo && (
+                <div className="p-2.5 bg-gray-50 dark:bg-gray-800/60 rounded-xl border border-gray-200 dark:border-gray-700 text-[11px] text-gray-600 dark:text-gray-400 space-y-1">
+                  <div className="flex items-center justify-between font-semibold">
+                    <span>Terakhir Dibersihkan:</span>
+                    <span className="font-mono text-gray-800 dark:text-gray-200">{lastPurgeInfo.date}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Total Baris Terhapus:</span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{lastPurgeInfo.totalDeleted?.toLocaleString() || 0} baris</span>
+                  </div>
+                </div>
+              )}
+
+              {purgeResult && (
+                <div className={`p-3 rounded-xl text-xs font-semibold ${
+                  purgeResult.success 
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                }`}>
+                  {purgeResult.message}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                onClick={handleManualPurgeBackup}
+                disabled={isPurgingBackup}
+                className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-500/20 active:scale-98 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isPurgingBackup ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                Bersihkan Data Cadangan &gt; 7 Hari Sekarang
+              </button>
+
+              <button
+                onClick={handleCopyRetentionSql}
+                className="w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                {copiedRetentionSql ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                {copiedRetentionSql ? 'Tersalin!' : 'Copy Script SQL Trigger Retensi (Opsional di Supabase SQL Editor)'}
+              </button>
+            </div>
+          </div>
+
         </div>
       </div>
 

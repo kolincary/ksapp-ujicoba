@@ -18,6 +18,7 @@ import { startDeviceTracking, stopDeviceTracking } from './services/deviceTracke
 import { initGineeGlobalSyncScheduler } from './services/gineeGlobalSyncService';
 import { Ban, LogOut, User, Crown, Search, X, Lock, Target, ChevronRight, ArrowRight } from 'lucide-react';
 import { syncUserLoginThemeFromCloud, STORAGE_KEY_LOGIN_THEME } from './services/themeSyncService';
+import { autoRunBackupRetentionOnceDaily } from './services/dualSupabaseService';
 
 const DEFAULT_PROFILE_CONFIG: ProfileConfig[] = [
   { role: 'PICKER', is_active: true, sort_order: 1 },
@@ -226,6 +227,9 @@ const App: React.FC = () => {
         });
       } catch (e) {}
     }
+
+    // Jalankan pemeriksaan retensi 7 hari untuk Supabase Cadangan sekali per hari di background
+    autoRunBackupRetentionOnceDaily();
 
     return () => {
       if (unsubProfileFs) unsubProfileFs();

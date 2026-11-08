@@ -11,6 +11,12 @@ import { collection, getDocs, query, orderBy, where, limit } from 'firebase/fire
 import { db } from '../services/firebaseClient';
 import { PinModal } from './PinModal';
 import { getActiveLoginTheme, LoginThemeVariant } from '../services/themeSyncService';
+import { 
+  replicateBackupInsert, 
+  replicateBackupUpsert, 
+  replicateBackupUpdate, 
+  replicateBackupDelete 
+} from '../services/dualSupabaseService';
 
 import { Users, UserPlus, Shield } from 'lucide-react';
 
@@ -1106,6 +1112,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   // 2. Delete from scanned_items
                   const idsToDelete = itemsToMove.map(i => i.id);
                   await supabase.from('scanned_items').delete().in('id', idsToDelete);
+                  replicateBackupDelete('scanned_items', { column: 'id', inValues: idsToDelete });
                   
                   // 3. Update local state
                   setItems(prev => prev.filter(i => !idsToDelete.includes(i.id)));
@@ -1254,10 +1261,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
          }]);
 
          if (insertErr) throw insertErr;
+         replicateBackupInsert('sortir_eliminations', [{
+            barcode: pendingMoveCancelItem.barcode,
+            employee_name: pendingMoveCancelItem.employee_name || employeeName,
+            timestamp: Date.now(),
+            move_type: 'MANUAL'
+         }]);
 
          // 2. Delete from scanned_items
          const { error: deleteErr } = await supabase.from('scanned_items').delete().eq('id', pendingMoveCancelItem.id);
          if (deleteErr) throw deleteErr;
+         replicateBackupDelete('scanned_items', { column: 'id', value: pendingMoveCancelItem.id });
 
          // 3. Update local state
          setItems(prev => prev.filter(i => i.id !== pendingMoveCancelItem.id));
@@ -1903,6 +1917,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
          // 6. Bulk Insert to scanned_items (Handled in high-speed parallel chunks by PocketBase)
          const { error: insertErr } = await supabase.from('scanned_items').insert(bulkItems);
 
+         if (!insertErr) {
+            replicateBackupInsert('scanned_items', bulkItems);
+         }
+
          if (insertErr) {
             console.error("Bulk Insert Error:", insertErr);
             triggerCameraToast("Gagal sinkron sebagian data batch ke server!", "error");
@@ -1918,6 +1936,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                .update({ excel_filename: batchExcelName })
                .in('barcode', upperBCs)
                .catch(console.error);
+            replicateBackupUpdate('scanned_items', { excel_filename: batchExcelName }, { column: 'barcode', inValues: upperBCs });
          }
 
          // Custom message if there were cancelled items
@@ -2960,6 +2979,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                      employee_name: combinedName
                   })
                   .eq('id', targetPendingId);
+               replicateBackupUpdate('scanned_items', {
+                  status: 'COMPLETED',
+                  menu_context: 'READY',
+                  description: updatedDesc,
+                  employee_name: combinedName
+               }, { column: 'id', value: targetPendingId });
             } catch (e) {
                console.error("Failed to convert pending item status in Supabase:", e);
             }
@@ -3490,14 +3515,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
          const { error } = await targetClient.from(targetTable).insert([insertData]);
 
+         if (!error) {
+            // Dual-Write ke Supabase Cadangan (Non-blocking asynchronous background replica)
+            replicateBackupInsert(targetTable, insertData);
+         }
+
          if (!error && item.menu_context === 'CANCEL') {
             try {
                // Also insert into cancelled_orders so Admin sees it in Total Cancel Data
-               await supabase.from('cancelled_orders').upsert([{
+               const cancelPayload = {
                   barcode: item.barcode.trim().toUpperCase(),
                   is_active: true,
                   cancelled_at: new Date().toISOString()
-               }], { onConflict: 'barcode' });
+               };
+               await supabase.from('cancelled_orders').upsert([cancelPayload], { onConflict: 'barcode' });
+               replicateBackupUpsert('cancelled_orders', [cancelPayload], 'barcode');
             } catch (cancelErr) {
                console.error("Failed to insert into cancelled_orders:", cancelErr);
             }
@@ -4375,6 +4407,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                if (error) throw error;
                successfulIds.push(item.id);
+
+               // Dual-write ke Supabase Cadangan
+               replicateBackupInsert('scanned_items', {
+                  id: newId,
+                  timestamp: Date.now(),
+                  barcode: item.barcode,
+                  role: item.role,
+                  user_email: userEmail,
+                  employee_name: item.employee_name,
+                  destination: item.destination,
+                  description: item.description,
+                  priority: item.priority,
+                  status: item.status === 'ERROR' ? 'COMPLETED' : item.status,
+                  scan_mode: item.scan_mode || 'INDIVIDU',
+                  team_members: item.team_members || [],
+                  report_keterangan: item.report_keterangan || null,
+                  report_msku: item.report_msku || null,
+                  report_qty: item.report_qty || null,
+                  order_id: item.order_id || null
+               });
+               replicateBackupDelete('failed_scans', { column: 'id', value: item.id });
 
                // Remove from failed_scans table if it was persisted
                await supabase.from('failed_scans').delete().eq('id', item.id);
