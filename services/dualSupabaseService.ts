@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { extractProjectRef } from './supabaseClient';
+import { supabase, extractProjectRef } from './supabaseClient';
 
 /**
  * DUAL-SUPABASE SERVICE (ACTIVE-STANDBY REAL-TIME REPLICATION & 7-DAY RETENTION)
@@ -90,12 +90,15 @@ export const getBackupClient = (): SupabaseClient | null => {
 };
 
 /**
- * Simpan konfigurasi baru untuk Supabase Cadangan
+ * Simpan konfigurasi baru untuk Supabase Cadangan:
+ * 1. Simpan ke localStorage (instan untuk perangkat Admin)
+ * 2. Simpan ke tabel app_settings di Supabase VPS agar OTOMATIS tersinkron ke SELURUH user/scanner!
  */
-export const setBackupSupabaseConfig = (url: string, key: string): void => {
+export const setBackupSupabaseConfig = async (url: string, key: string): Promise<void> => {
   const cleanUrl = url.trim();
   const cleanKey = key.trim();
 
+  // 1. Simpan di perangkat lokal
   try {
     localStorage.setItem(STORAGE_BACKUP_URL, cleanUrl);
     localStorage.setItem(STORAGE_BACKUP_KEY, cleanKey);
@@ -110,6 +113,81 @@ export const setBackupSupabaseConfig = (url: string, key: string): void => {
   } catch (e) {
     console.error('[DualSupabase] Gagal menyimpan config cadangan ke localStorage', e);
   }
+
+  // 2. Simpan ke database Supabase VPS (app_settings) agar disiarkan ke semua staf/scanner
+  try {
+    // Simpan URL Cadangan
+    const { data: existingUrl } = await supabase
+      .from('app_settings')
+      .select('id')
+      .eq('setting_key', 'backup_supabase_url')
+      .maybeSingle();
+
+    if (existingUrl?.id) {
+      await supabase.from('app_settings').update({ setting_value: cleanUrl }).eq('id', existingUrl.id);
+    } else {
+      await supabase.from('app_settings').insert({ setting_key: 'backup_supabase_url', setting_value: cleanUrl });
+    }
+
+    // Simpan Key Cadangan
+    const { data: existingKey } = await supabase
+      .from('app_settings')
+      .select('id')
+      .eq('setting_key', 'backup_supabase_key')
+      .maybeSingle();
+
+    if (existingKey?.id) {
+      await supabase.from('app_settings').update({ setting_value: cleanKey }).eq('id', existingKey.id);
+    } else {
+      await supabase.from('app_settings').insert({ setting_key: 'backup_supabase_key', setting_value: cleanKey });
+    }
+
+    console.log('[DualSupabase] ✅ Kredensial Supabase Cadangan berhasil disimpan ke app_settings Supabase VPS!');
+  } catch (cloudErr) {
+    console.warn('[DualSupabase] Warning: Gagal menyimpan ke app_settings Supabase VPS:', cloudErr);
+  }
+};
+
+/**
+ * Sinkronisasi kredensial Supabase Cadangan dari Supabase VPS (app_settings) ke perangkat user/scanner.
+ * Dipanggil otomatis saat aplikasi dimuat di perangkat apapun.
+ */
+export const syncBackupConfigFromCloud = async (): Promise<BackupSupabaseConfig> => {
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('setting_key, setting_value')
+      .in('setting_key', ['backup_supabase_url', 'backup_supabase_key']);
+
+    if (!error && data && data.length > 0) {
+      const urlRow = data.find(r => r.setting_key === 'backup_supabase_url');
+      const keyRow = data.find(r => r.setting_key === 'backup_supabase_key');
+
+      let updated = false;
+      if (urlRow?.setting_value && urlRow.setting_value.trim().startsWith('http')) {
+        localStorage.setItem(STORAGE_BACKUP_URL, urlRow.setting_value.trim());
+        updated = true;
+      }
+      if (keyRow?.setting_value && keyRow.setting_value.trim().length > 10) {
+        localStorage.setItem(STORAGE_BACKUP_KEY, keyRow.setting_value.trim());
+        updated = true;
+      }
+
+      if (updated) {
+        backupClientInstance = null;
+        currentBackupUrl = '';
+        currentBackupKey = '';
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('kalindo_backup_config_changed'));
+        }
+        console.log('[DualSupabase] ✅ Konfigurasi Supabase Cadangan disinkronkan dari VPS ke perangkat ini.');
+      }
+    }
+  } catch (err) {
+    console.warn('[DualSupabase] Error syncing backup config from VPS app_settings:', err);
+  }
+
+  return getBackupSupabaseConfig();
 };
 
 /**

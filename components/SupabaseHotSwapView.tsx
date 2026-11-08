@@ -199,13 +199,13 @@ export const SupabaseHotSwapView: React.FC = () => {
     });
   };
 
-  const handleSaveBackupConfig = () => {
+  const handleSaveBackupConfig = async () => {
     if (!backupUrl.trim() || !backupKey.trim()) {
       alert('URL dan Anon Key Supabase Cadangan tidak boleh kosong.');
       return;
     }
-    setBackupSupabaseConfig(backupUrl, backupKey);
-    setBackupSaveSuccess('Konfigurasi Supabase Cadangan berhasil disimpan!');
+    await setBackupSupabaseConfig(backupUrl, backupKey);
+    setBackupSaveSuccess('Konfigurasi Supabase Cadangan berhasil disimpan di VPS & disiarkan ke seluruh perangkat user!');
     setTimeout(() => setBackupSaveSuccess(''), 4000);
     handleTestBackupConnection();
   };
