@@ -384,9 +384,31 @@ export const SupabaseHotSwapView: React.FC = () => {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-200">2. Supabase Cadangan</span>
                 <div className="flex items-center gap-1.5">
-                  <span className={`w-2.5 h-2.5 rounded-full ${backupTestStatus.success ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
-                  <span className="text-xs font-bold text-amber-300">
-                    {backupTestStatus.success ? 'STANDBY (7 HARI)' : 'CHECKING'}
+                  <span className={`w-2.5 h-2.5 rounded-full ${
+                    backupTestStatus.loading 
+                      ? 'bg-amber-400 animate-pulse' 
+                      : backupTestStatus.success 
+                      ? 'bg-emerald-400' 
+                      : backupTestStatus.success === false 
+                      ? 'bg-rose-500' 
+                      : 'bg-gray-400'
+                  }`}></span>
+                  <span className={`text-xs font-bold ${
+                    backupTestStatus.loading 
+                      ? 'text-amber-300' 
+                      : backupTestStatus.success 
+                      ? 'text-emerald-300' 
+                      : backupTestStatus.success === false 
+                      ? 'text-rose-300' 
+                      : 'text-gray-300'
+                  }`}>
+                    {backupTestStatus.loading 
+                      ? 'MEMERIKSA...' 
+                      : backupTestStatus.success 
+                      ? 'STANDBY (7 HARI)' 
+                      : backupTestStatus.success === false 
+                      ? 'OFFLINE / PAUSED' 
+                      : 'BELUM DIUJI'}
                   </span>
                 </div>
               </div>

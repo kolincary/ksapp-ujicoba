@@ -78,7 +78,12 @@ export const getBackupClient = (): SupabaseClient | null => {
         persistSession: false,
         autoRefreshToken: false,
         detectSessionInUrl: false,
-        storageKey: `sb-backup-${config.projectRef}`
+        storageKey: `sb-backup-${config.projectRef}`,
+        storage: {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {}
+        }
       }
     });
 
@@ -207,7 +212,17 @@ export const testBackupConnection = async (
 
   try {
     const testClient = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storageKey: `sb-test-backup-${Date.now()}`,
+        storage: {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {}
+        }
+      }
     });
 
     const { count, error } = await testClient
@@ -235,7 +250,14 @@ export const testBackupConnection = async (
       latencyMs
     };
   } catch (e: any) {
-    return { success: false, message: `Error koneksi: ${e?.message || 'Server cadangan tidak merespons'}` };
+    const errMsg = e?.message || '';
+    if (errMsg.includes('Failed to fetch') || errMsg.includes('ERR_NAME_NOT_RESOLVED') || errMsg.includes('NetworkError')) {
+      return {
+        success: false,
+        message: 'Koneksi Gagal: Domain Supabase Cadangan tidak dapat diakses (ERR_NAME_NOT_RESOLVED). Kemungkinan project sedang di-PAUSE atau dihapus di Supabase Cloud.'
+      };
+    }
+    return { success: false, message: `Error koneksi: ${errMsg || 'Server cadangan tidak merespons'}` };
   }
 };
 
