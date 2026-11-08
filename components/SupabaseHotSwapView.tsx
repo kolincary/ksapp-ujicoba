@@ -175,6 +175,18 @@ export const SupabaseHotSwapView: React.FC = () => {
   useEffect(() => {
     handleTestActiveConnection();
     handleTestBackupConnection();
+
+    const handleBackupConfigChanged = () => {
+      const cfg = getBackupSupabaseConfig();
+      setBackupUrl(cfg.url);
+      setBackupKey(cfg.key);
+      handleTestBackupConnection(cfg.url, cfg.key);
+    };
+
+    window.addEventListener('kalindo_backup_config_changed', handleBackupConfigChanged);
+    return () => {
+      window.removeEventListener('kalindo_backup_config_changed', handleBackupConfigChanged);
+    };
   }, []);
 
   const handleTestActiveConnection = async () => {
@@ -188,9 +200,11 @@ export const SupabaseHotSwapView: React.FC = () => {
     });
   };
 
-  const handleTestBackupConnection = async () => {
+  const handleTestBackupConnection = async (targetUrl?: string, targetKey?: string) => {
     setBackupTestStatus({ loading: true });
-    const res = await testBackupConnection(backupUrl, backupKey);
+    const urlToTest = (targetUrl !== undefined ? targetUrl : backupUrl).trim();
+    const keyToTest = (targetKey !== undefined ? targetKey : backupKey).trim();
+    const res = await testBackupConnection(urlToTest, keyToTest);
     setBackupTestStatus({
       loading: false,
       success: res.success,
@@ -407,7 +421,7 @@ export const SupabaseHotSwapView: React.FC = () => {
                       : backupTestStatus.success 
                       ? 'STANDBY (7 HARI)' 
                       : backupTestStatus.success === false 
-                      ? 'OFFLINE / PAUSED' 
+                      ? (backupTestStatus.message?.includes('Anon Key') ? 'KEY TIDAK COCOK' : 'OFFLINE / PAUSED') 
                       : 'BELUM DIUJI'}
                   </span>
                 </div>

@@ -240,6 +240,13 @@ export const testBackupConnection = async (
           latencyMs
         };
       }
+      if (error.message?.includes('Invalid API key') || error.message?.includes('JWT') || error.code === 'PGRST301') {
+        return {
+          success: false,
+          message: 'Server Cadangan Aktif, namun Anon Key salah/tidak cocok. Harap salin Anon Public Key dari Project Settings > API pada project cadangan.',
+          latencyMs
+        };
+      }
       return { success: false, message: `Gagal: ${error.message} (${error.code || 'ERR'})`, latencyMs };
     }
 
@@ -254,7 +261,7 @@ export const testBackupConnection = async (
     if (errMsg.includes('Failed to fetch') || errMsg.includes('ERR_NAME_NOT_RESOLVED') || errMsg.includes('NetworkError')) {
       return {
         success: false,
-        message: 'Koneksi Gagal: Domain Supabase Cadangan tidak dapat diakses (ERR_NAME_NOT_RESOLVED). Kemungkinan project sedang di-PAUSE atau dihapus di Supabase Cloud.'
+        message: 'Koneksi Gagal: Domain Supabase Cadangan tidak dapat diakses (ERR_NAME_NOT_RESOLVED). Periksa apakah ada salah ketik URL atau project di-pause.'
       };
     }
     return { success: false, message: `Error koneksi: ${errMsg || 'Server cadangan tidak merespons'}` };
