@@ -15,7 +15,8 @@ import {
   replicateBackupInsert, 
   replicateBackupUpsert, 
   replicateBackupUpdate, 
-  replicateBackupDelete 
+  replicateBackupDelete,
+  syncBackupConfigFromCloud 
 } from '../services/dualSupabaseService';
 
 import { Users, UserPlus, Shield } from 'lucide-react';
@@ -370,6 +371,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
    useEffect(() => {
       const fetchGlobalSettings = async () => {
          try {
+            // Sinkronisasi kredensial Supabase Cadangan terbaru dari Supabase VPS (app_settings)
+            syncBackupConfigFromCloud().catch(() => {});
+
             const { data, error } = await supabase.from('app_settings').select('*').eq('id', 1).single();
             if (!error && data) {
                setSkipCheckerDuplicate(!!data.skip_duplicate_checker);
@@ -384,6 +388,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
          }
       };
       fetchGlobalSettings();
+
+      // Interval otomatis periksa pembaruan setting Supabase Cadangan setiap 3 menit
+      const backupSyncInterval = setInterval(() => {
+         syncBackupConfigFromCloud().catch(() => {});
+      }, 180000);
 
       // Sync Profiles Config in realtime
       const fetchProfilesConfig = async () => {
@@ -421,7 +430,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       const channel = supabase
          .channel('dashboard_app_settings_changes')
-         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings' }, (payload) => {
+         .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, (payload) => {
+            // Sinkronkan Supabase Cadangan secara instan via realtime jika diubah Admin
+            syncBackupConfigFromCloud().catch(() => {});
             if (payload.new) {
                setSkipCheckerDuplicate(!!payload.new.skip_duplicate_checker);
                if (payload.new.strict_resi_mode !== undefined && payload.new.strict_resi_mode !== null) {
@@ -434,6 +445,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
          .subscribe();
 
       return () => {
+         clearInterval(backupSyncInterval);
          supabase.removeChannel(channel);
          supabase.removeChannel(channelProfiles);
          window.removeEventListener('kalindo_profile_config_updated', handleProfileConfigUpdate);

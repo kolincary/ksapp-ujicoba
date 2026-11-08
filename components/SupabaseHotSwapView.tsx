@@ -517,10 +517,15 @@ export const SupabaseHotSwapView: React.FC = () => {
 
             <button
               onClick={handleSaveBackupConfig}
-              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 active:scale-98 cursor-pointer flex items-center justify-center gap-2"
+              disabled={isSavingBackup}
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 active:scale-98 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <Check size={15} /> Simpan Konfigurasi Supabase Cadangan
+              {isSavingBackup ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+              {isSavingBackup ? 'Menyimpan & Menyiarkan ke Server VPS...' : 'Simpan Konfigurasi Supabase Cadangan'}
             </button>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 text-center leading-relaxed">
+              📡 <b>Tersimpan di Server VPS:</b> Kredensial disimpan ke tabel <code>app_settings</code> Supabase VPS dan <b>otomatis disiarkan secara real-time</b> ke seluruh HP/scanner staf tanpa perlu ditebak atau disetel manual.
+            </p>
           </div>
 
           {/* Right: 7-Day Retention Policy & Manual Purge */}
