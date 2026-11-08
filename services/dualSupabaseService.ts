@@ -498,3 +498,4 @@ $$;
 -- Berikan izin akses eksekusi fungsi
 GRANT EXECUTE ON FUNCTION public.purge_cadangan_older_than_7_days() TO anon, authenticated, service_role;
 `;
+
