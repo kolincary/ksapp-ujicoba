@@ -366,7 +366,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 
     // 1. Check if email exists in DB (passed via props)
     if (!isSuperUser) {
-      const strictRoles = permissions[userEmail];
+      const strictRoles = permissions ? permissions[userEmail] : undefined;
 
       if (strictRoles && !strictRoles.includes(role)) {
         setError(`Akses Ditolak: Akun tidak memiliki izin untuk ${role}`);
@@ -412,7 +412,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
     if (lower.includes('ojol')) return 'Tim Ojol';
 
     // Check Permissions array
-    const userRoles = userPerms[email] || [];
+    const userRoles = (userPerms && userPerms[email]) ? userPerms[email] : [];
     if (userRoles.includes('ADMIN')) return 'System Administrator';
     if (userRoles.includes('LEADER')) return 'Leader Warehouse';
     if (userRoles.length >= 3) return 'Staff Operasional';

@@ -603,7 +603,19 @@ const App: React.FC = () => {
     setUserEmail(trimmedEmail);
     localStorage.setItem(STORAGE_KEY_USER, trimmedEmail);
 
-    // --- SUPABASE REGISTRATION & BLOCK CHECK ---
+    // Sync cloud-saved login theme for this user
+    syncUserLoginThemeFromCloud(trimmedEmail).catch(() => {});
+
+    // 🚀 NAVIGASI INSTAN: Langsung pindah tampilan tanpa menahan UI karena network database
+    if (trimmedEmail === 'dev@kalindo.com') {
+      setAuthStep('ADMIN_LOGIN');
+    } else if (GOD_MODE_USERS.includes(trimmedEmail)) {
+      setAuthStep('GOD_MODE_SELECTION');
+    } else {
+      setAuthStep('ROLE_SELECTION');
+    }
+
+    // --- SUPABASE REGISTRATION & PERMISSIONS CHECK DI LATAR BELAKANG ---
     try {
       // 1. Check if user exists (case-insensitive)
       const { data: existingUser, error: fetchError } = await supabase
@@ -615,8 +627,9 @@ const App: React.FC = () => {
       // If user exists, CHECK IF BLOCKED & SYNC STATE
       if (existingUser) {
         if (existingUser.is_blocked) {
-          // SHOW MODAL INSTEAD OF ALERT
           setIsUserBlocked(true);
+          localStorage.removeItem(STORAGE_KEY_USER);
+          localStorage.removeItem(STORAGE_KEY_ROLE);
           return;
         }
 
@@ -690,22 +703,6 @@ const App: React.FC = () => {
       }
     } catch (err) {
       console.error("Supabase Registration Error:", err);
-    }
-    // -----------------------------------
-
-    // Sync cloud-saved login theme for this user
-    syncUserLoginThemeFromCloud(email).catch(() => {});
-
-    if (email === 'dev@kalindo.com') {
-      setAuthStep('ADMIN_LOGIN');
-    } else {
-      // **GOD MODE CHECK**
-      if (GOD_MODE_USERS.includes(email)) {
-        setAuthStep('GOD_MODE_SELECTION');
-      } else {
-        // **REMOVED PIN_CHECK**: Skip Security Verification as requested
-        setAuthStep('ROLE_SELECTION');
-      }
     }
   };
 

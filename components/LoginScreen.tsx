@@ -556,10 +556,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const finish = useCallback(
     (email: string) => {
       notify(true, `Berhasil masuk sebagai ${email}`);
-      setTimeout(() => onLoginSuccess(email), 500);
+      // Langsung panggil onLoginSuccess agar transisi layar instan tanpa delay
+      onLoginSuccess(email);
     },
     [onLoginSuccess]
   );
+
+  // Auto-recovery jika popup Google ditutup user tanpa memicu event GIS
+  useEffect(() => {
+    let focusTimer: any = null;
+    const handleFocus = () => {
+      if (loading) {
+        focusTimer = setTimeout(() => {
+          setLoading(false);
+        }, 2500);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      if (focusTimer) clearTimeout(focusTimer);
+    };
+  }, [loading]);
 
   // Dynamic GSI Loader
   useEffect(() => {
@@ -863,8 +881,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             notification.isSkippedMoment() ||
             notification.isDismissedMoment()
           ) {
-            setLoading(false);
-            setError('Jendela Google Login tidak dapat dibuka. Pastikan pop-up diizinkan di browser.');
+            // Coba redirect Supabase OAuth jika One Tap diabaikan/tidak tampil
+            handleOAuthRedirectFallback();
           }
         });
         return;
@@ -873,8 +891,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       }
     }
 
-    setLoading(false);
-    setError('Layanan Google Sign-In sedang dimuat. Silakan tunggu sebentar dan coba lagi.');
+    // 4. Fallback Terakhir: OAuth Redirect Browser Penuh (Jika popup/GIS diblokir browser)
+    handleOAuthRedirectFallback();
+  };
+
+  const handleOAuthRedirectFallback = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const { error: supaErr } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+          queryParams: {
+            prompt: 'select_account'
+          }
+        }
+      });
+      if (supaErr) throw supaErr;
+    } catch (err: any) {
+      setLoading(false);
+      console.warn('OAuth redirect fallback error:', err);
+      setError('Jendela pop-up Google Login terblokir oleh browser. Silakan izinkan pop-up di pengaturan browser.');
+    }
   };
 
   const handleAdminClick = () => {
