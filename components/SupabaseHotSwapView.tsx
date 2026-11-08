@@ -90,6 +90,7 @@ export const SupabaseHotSwapView: React.FC = () => {
   const [backupKey, setBackupKey] = useState(backupConfig.key);
   const [backupTestStatus, setBackupTestStatus] = useState<{ loading: boolean; success?: boolean; message?: string; count?: number; latencyMs?: number }>({ loading: false });
   const [backupSaveSuccess, setBackupSaveSuccess] = useState('');
+  const [isSavingBackup, setIsSavingBackup] = useState(false);
   
   // 7-day retention state
   const [isPurgingBackup, setIsPurgingBackup] = useState(false);
@@ -204,10 +205,17 @@ export const SupabaseHotSwapView: React.FC = () => {
       alert('URL dan Anon Key Supabase Cadangan tidak boleh kosong.');
       return;
     }
-    await setBackupSupabaseConfig(backupUrl, backupKey);
-    setBackupSaveSuccess('Konfigurasi Supabase Cadangan berhasil disimpan di VPS & disiarkan ke seluruh perangkat user!');
-    setTimeout(() => setBackupSaveSuccess(''), 4000);
-    handleTestBackupConnection();
+    setIsSavingBackup(true);
+    try {
+      await setBackupSupabaseConfig(backupUrl, backupKey);
+      setBackupSaveSuccess('Konfigurasi Supabase Cadangan berhasil disimpan di VPS & disiarkan ke seluruh perangkat user!');
+      setTimeout(() => setBackupSaveSuccess(''), 4000);
+      handleTestBackupConnection();
+    } catch (err: any) {
+      alert('Gagal menyimpan ke server VPS: ' + (err?.message || err));
+    } finally {
+      setIsSavingBackup(false);
+    }
   };
 
   const handleManualPurgeBackup = async () => {
