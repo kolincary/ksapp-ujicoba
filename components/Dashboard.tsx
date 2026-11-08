@@ -5,7 +5,7 @@ import { ScanLine, Loader2, Settings, Search, Zap, CheckCircle2, Clock, Package,
 import { ScannerModal } from './ScannerModal';
 import { SettingsModal } from './SettingsModal';
 import { RunningTextBanner } from './RunningTextBanner';
-import { supabase, supabaseNew } from '../services/supabaseClient';
+import { supabase, supabaseNew, supabaseLeader } from '../services/supabaseClient';
 import { supabaseBundling } from '../services/supabaseBundlingClient';
 import { collection, getDocs, query, orderBy, where, limit } from 'firebase/firestore';
 import { db } from '../services/firebaseClient';
@@ -3164,13 +3164,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
             error = retryRes.error;
          }
 
-         // BACKUP: UPSERT TO SECOND SUPABASE ACCOUNT (with retry)
+         // BACKUP: UPSERT TO DEDICATED LEADER SUPABASE (ymolrxscthxxtlmnxmob)
          try {
-            const bRes = await supabaseNew
+            const bRes = await supabaseLeader
                .from('leader_scan_2')
                .upsert([payload], { onConflict: 'barcode' });
             if (bRes.error) {
-               await supabaseNew
+               await supabaseLeader
                   .from('leader_scan_2')
                   .upsert([payload], { onConflict: 'barcode' });
             }
@@ -3179,7 +3179,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             try {
                const cleanLeader = (selectedLeaderProfile || employeeName || '').toLowerCase().includes('akmal') ? 'akmal' : 'ricky';
                const scanDateIso = new Date().toISOString().split('T')[0];
-               await supabaseNew
+               await supabaseLeader
                   .from('scanned_orders')
                   .upsert({
                      barcode: pendingAssignmentBarcode.trim(),
@@ -3189,6 +3189,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
             } catch (scannedOrdersErr) {
                console.warn("scanned_orders sync notice (non-blocking):", scannedOrdersErr);
             }
+
+            // Also replicate to hot-swap secondary backup if active
+            replicateBackupUpsert('leader_scan_2', payload, 'barcode');
          } catch (backupError) {
             console.error('Backup upsert error (non-blocking):', backupError);
          }
@@ -3261,17 +3264,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
             .delete()
             .eq('barcode', pendingDeleteBarcode);
 
-         // BACKUP: DELETE FROM SECOND SUPABASE
+         // BACKUP: DELETE FROM DEDICATED LEADER SUPABASE (ymolrxscthxxtlmnxmob)
          try {
-            await supabaseNew
+            await supabaseLeader
                .from('leader_scan_2')
                .delete()
                .eq('barcode', pendingDeleteBarcode);
 
-            await supabaseNew
+            await supabaseLeader
                .from('scanned_orders')
                .delete()
                .eq('barcode', pendingDeleteBarcode);
+
+            // Also replicate to hot-swap secondary backup if active
+            replicateBackupDelete('leader_scan_2', { column: 'barcode', value: pendingDeleteBarcode });
          } catch (backupErr) {
             console.error("Backup delete error (non-blocking):", backupErr);
          }
@@ -3345,12 +3351,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
             .update({ scan_type: newType })
             .eq('barcode', pendingSwitchBarcode);
 
-         // BACKUP UPDATE
+         // BACKUP UPDATE TO DEDICATED LEADER SUPABASE (ymolrxscthxxtlmnxmob)
          try {
-            await supabaseNew
+            await supabaseLeader
                .from('leader_scan_2')
                .update({ scan_type: newType })
                .eq('barcode', pendingSwitchBarcode);
+
+            // Also replicate to hot-swap secondary backup if active
+            replicateBackupUpdate('leader_scan_2', { scan_type: newType }, { column: 'barcode', value: pendingSwitchBarcode });
          } catch (backupErr) {
             console.error(backupErr);
          }

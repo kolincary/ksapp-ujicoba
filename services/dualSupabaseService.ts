@@ -10,8 +10,8 @@ import { supabase, extractProjectRef } from './supabaseClient';
  * 3. 7-Day Retention: Hanya data pada Supabase Cadangan yang dibersihkan jika berumur > 7 hari (data VPS tetap utuh).
  */
 
-export const STORAGE_BACKUP_URL = 'active_backup_supabase_url';
-export const STORAGE_BACKUP_KEY = 'active_backup_supabase_key';
+export const STORAGE_BACKUP_URL = 'ks_dual_backup_supabase_url';
+export const STORAGE_BACKUP_KEY = 'ks_dual_backup_supabase_key';
 export const STORAGE_LAST_PURGE = 'last_backup_retention_run';
 
 // Default Secondary Supabase instance (Supabase Archive / Backup)
