@@ -203,14 +203,24 @@ export const testBackupConnection = async (
   customKey?: string
 ): Promise<{ success: boolean; message: string; rowCount?: number; latencyMs?: number }> => {
   const startTime = Date.now();
-  const url = (customUrl || getBackupSupabaseConfig().url).trim();
-  const key = (customKey || getBackupSupabaseConfig().key).trim();
+  const url = (customUrl !== undefined ? customUrl : getBackupSupabaseConfig().url).trim();
+  const key = (customKey !== undefined ? customKey : getBackupSupabaseConfig().key).trim();
 
   if (!url || !key) {
     return { success: false, message: 'URL dan Anon Key Supabase Cadangan tidak boleh kosong.' };
   }
 
+  let controller: AbortController | null = null;
+  let timeoutId: any = null;
+
   try {
+    if (typeof AbortController !== 'undefined') {
+      controller = new AbortController();
+      timeoutId = setTimeout(() => {
+        try { controller?.abort(); } catch {}
+      }, 8000);
+    }
+
     const testClient = createClient(url, key, {
       auth: {
         persistSession: false,
@@ -222,17 +232,30 @@ export const testBackupConnection = async (
           setItem: () => {},
           removeItem: () => {}
         }
+      },
+      global: {
+        fetch: (input, init) => {
+          return fetch(input, { ...init, signal: controller ? controller.signal : init?.signal });
+        }
       }
     });
 
-    const { count, error } = await testClient
-      .from('scanned_items')
-      .select('id', { count: 'exact', head: true });
+    // 1. Quick probe to check connectivity & credentials within milliseconds
+    const probeRes = await testClient.from('scanned_items').select('id').limit(1);
+    if (timeoutId) clearTimeout(timeoutId);
 
     const latencyMs = Date.now() - startTime;
 
-    if (error) {
-      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+    if (probeRes.status === 401 || probeRes.error?.message?.toLowerCase().includes('invalid api key') || probeRes.error?.message?.toLowerCase().includes('jwt')) {
+      return {
+        success: false,
+        message: 'Server Cadangan Aktif, namun Anon Key salah/tidak cocok. Harap salin Anon Public Key dari Project Settings > API pada project cadangan.',
+        latencyMs
+      };
+    }
+
+    if (probeRes.error) {
+      if (probeRes.error.code === '42P01' || probeRes.error.message?.includes('does not exist')) {
         return {
           success: true,
           message: 'Terkoneksi ke Supabase Cadangan! (Tabel scanned_items belum dibuat, jalankan schema).',
@@ -240,23 +263,32 @@ export const testBackupConnection = async (
           latencyMs
         };
       }
-      if (error.message?.includes('Invalid API key') || error.message?.includes('JWT') || error.code === 'PGRST301') {
-        return {
-          success: false,
-          message: 'Server Cadangan Aktif, namun Anon Key salah/tidak cocok. Harap salin Anon Public Key dari Project Settings > API pada project cadangan.',
-          latencyMs
-        };
-      }
-      return { success: false, message: `Gagal: ${error.message} (${error.code || 'ERR'})`, latencyMs };
+      return { success: false, message: `Gagal: ${probeRes.error.message} (${probeRes.error.code || 'ERR'})`, latencyMs };
     }
+
+    // 2. Try fetching count optionally (fast background check)
+    let totalRows: number | undefined = undefined;
+    try {
+      const countRes = await testClient.from('scanned_items').select('id', { count: 'exact', head: true });
+      if (countRes.count !== null && countRes.count !== undefined) {
+        totalRows = countRes.count;
+      }
+    } catch {}
 
     return {
       success: true,
       message: `Terkoneksi Normal ke Supabase Cadangan! (${latencyMs}ms)`,
-      rowCount: count ?? 0,
+      rowCount: totalRows,
       latencyMs
     };
   } catch (e: any) {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (e?.name === 'AbortError') {
+      return {
+        success: false,
+        message: 'Koneksi Timeout (>8 detik): Server cadangan tidak merespons tepat waktu.'
+      };
+    }
     const errMsg = e?.message || '';
     if (errMsg.includes('Failed to fetch') || errMsg.includes('ERR_NAME_NOT_RESOLVED') || errMsg.includes('NetworkError')) {
       return {

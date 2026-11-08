@@ -201,17 +201,27 @@ export const SupabaseHotSwapView: React.FC = () => {
   };
 
   const handleTestBackupConnection = async (targetUrl?: string, targetKey?: string) => {
-    setBackupTestStatus({ loading: true });
-    const urlToTest = (targetUrl !== undefined ? targetUrl : backupUrl).trim();
-    const keyToTest = (targetKey !== undefined ? targetKey : backupKey).trim();
-    const res = await testBackupConnection(urlToTest, keyToTest);
-    setBackupTestStatus({
-      loading: false,
-      success: res.success,
-      message: res.message,
-      count: res.rowCount,
-      latencyMs: res.latencyMs
-    });
+    setBackupTestStatus(prev => ({ ...prev, loading: true }));
+    try {
+      const urlToTest = (targetUrl !== undefined ? targetUrl : backupUrl).trim();
+      const keyToTest = (targetKey !== undefined ? targetKey : backupKey).trim();
+      const res = await testBackupConnection(urlToTest, keyToTest);
+      setBackupTestStatus({
+        loading: false,
+        success: res.success,
+        message: res.message,
+        count: res.rowCount,
+        latencyMs: res.latencyMs
+      });
+    } catch (err: any) {
+      setBackupTestStatus({
+        loading: false,
+        success: false,
+        message: `Error koneksi: ${err?.message || err}`
+      });
+    } finally {
+      setBackupTestStatus(prev => ({ ...prev, loading: false }));
+    }
   };
 
   const handleSaveBackupConfig = async () => {
