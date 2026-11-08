@@ -317,10 +317,15 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
   });
   const [selectedThemeOption, setSelectedThemeOption] = useState<LoginThemeVariant>(() => getActiveLoginTheme());
 
-  const handleSelectTheme = (theme: LoginThemeVariant) => {
+  // 1. Preview tema secara real-time saat opsi diklik (tanpa menutup modal)
+  const handlePreviewTheme = (theme: LoginThemeVariant) => {
     setSelectedThemeOption(theme);
-    setActiveTheme(theme);
-    saveUserLoginTheme(theme, userEmail);
+    setActiveTheme(theme); // Mengubah tampilan latar belakang secara real-time!
+  };
+
+  // 2. Terapkan pilihan dan simpan permanen hanya saat tombol "Terapkan Pilihan" diklik
+  const handleApplyTheme = () => {
+    saveUserLoginTheme(selectedThemeOption, userEmail);
     try {
       localStorage.setItem(THEME_CHOSEN_KEY, 'true');
     } catch (e) {
@@ -488,7 +493,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           <div className="mt-5 space-y-3.5">
             {/* Opsi 1: Tema 1 */}
             <div
-              onClick={() => handleSelectTheme('tema_1')}
+              onClick={() => handlePreviewTheme('tema_1')}
               className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between gap-3 ${
                 selectedThemeOption === 'tema_1'
                   ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/30 shadow-md ring-2 ring-blue-500/20'
@@ -524,7 +529,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 
             {/* Opsi 2: Tema 2 */}
             <div
-              onClick={() => handleSelectTheme('tema_2')}
+              onClick={() => handlePreviewTheme('tema_2')}
               className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between gap-3 ${
                 selectedThemeOption === 'tema_2'
                   ? 'border-amber-500 bg-amber-50/40 dark:bg-amber-950/20 shadow-md ring-2 ring-amber-500/20'
@@ -561,7 +566,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 
           <div className="mt-6 flex flex-col gap-2.5">
             <button
-              onClick={() => handleSelectTheme(selectedThemeOption)}
+              onClick={handleApplyTheme}
               className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl text-sm transition-all active:scale-[0.99] shadow-md shadow-blue-500/20 cursor-pointer"
             >
               Terapkan Pilihan
