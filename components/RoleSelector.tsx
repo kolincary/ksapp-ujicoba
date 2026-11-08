@@ -477,7 +477,9 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
     showThemeModal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" />
-        <div className="bg-white dark:bg-[#16191D] w-full max-w-md rounded-3xl shadow-2xl relative z-10 p-6 animate-[popIn_0.25s_ease-out] border border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+        <div 
+          className="bg-white dark:bg-[#16191D] w-[92vw] sm:w-[460px] max-w-[460px] rounded-3xl shadow-2xl relative z-10 p-5 sm:p-6 border border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white transition-none select-none"
+        >
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <Palette size={20} />
@@ -643,11 +645,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           @media (prefers-reduced-motion: reduce) {
             .ks-sweep { animation: none; }
           }
-          @media (min-width: 1024px) {
-            html {
-              font-size: clamp(14px, min(2.2vh, 1.1vw), 17px);
-            }
-          }
+
         `}</style>
 
         {/* ================= HEADER HERO MELENGKUNG ================= */}
