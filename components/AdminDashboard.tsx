@@ -7687,13 +7687,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
          const fetchOptimizedData = async (role: string, fetchGudangAudit = false) => {
             if (fetchGudangAudit) {
-               // 1. Direct fast fetch for Gudang status scans on Same-Day (Ready / Cancel / Pending)
+               // 1. Direct fast fetch for Gudang status scans on Same-Day (Ready / Cancel / Pending) up to 50000 rows
                const { data: sameDayGudangRows } = await supabase.from('scanned_items')
                   .select('id, barcode, timestamp, status, menu_context, role, description')
                   .or('status.eq.PENDING,menu_context.eq.PENDING,status.eq.READY,menu_context.eq.READY,status.eq.CANCEL,menu_context.eq.CANCEL,role.eq.GUDANG,role.eq.LEADER_PENDING')
                   .gte('timestamp', d.startMs)
                   .lte('timestamp', d.endMs)
-                  .limit(5000);
+                  .limit(50000);
 
                // 2. Identify unscanned admin barcodes to check cross-date Gudang status
                const sameDayGudangBc = new Set((sameDayGudangRows || []).map(r => (r.barcode || '').toString().trim().toUpperCase()).filter(Boolean));
@@ -7701,28 +7701,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                let crossDateGudangRows: any[] = [];
                if (unscannedAdminBc.length > 0) {
-                  const chunkSize = 200;
+                  // Gunakan chunk besar 1000 resi & dieksekusi secara paralel cepat
+                  const chunkSize = 1000;
                   const chunks: string[][] = [];
                   for (let i = 0; i < unscannedAdminBc.length; i += chunkSize) {
                      chunks.push(unscannedAdminBc.slice(i, i + chunkSize));
                   }
 
-                  // Process sequentially in small batches of 3 to prevent HTTP/2 connection overload
-                  const CONCURRENT_LIMIT_G = 3;
-                  for (let b = 0; b < chunks.length; b += CONCURRENT_LIMIT_G) {
-                     const batchSlice = chunks.slice(b, b + CONCURRENT_LIMIT_G);
-                     const batchResults = await Promise.all(
-                        batchSlice.map(chunk =>
-                           supabase.from('scanned_items')
-                              .select('id, barcode, timestamp, status, menu_context, role, description')
-                              .in('barcode', chunk)
-                              .or('status.eq.PENDING,menu_context.eq.PENDING,status.eq.READY,menu_context.eq.READY,status.eq.CANCEL,menu_context.eq.CANCEL,role.eq.GUDANG,role.eq.LEADER_PENDING')
-                        )
-                     );
-                     batchResults.forEach(res => {
-                        if (res.data) crossDateGudangRows.push(...res.data);
-                     });
-                  }
+                  const batchResults = await Promise.all(
+                     chunks.map(chunk =>
+                        supabase.from('scanned_items')
+                           .select('id, barcode, timestamp, status, menu_context, role, description')
+                           .in('barcode', chunk)
+                           .or('status.eq.PENDING,menu_context.eq.PENDING,status.eq.READY,menu_context.eq.READY,status.eq.CANCEL,menu_context.eq.CANCEL,role.eq.GUDANG,role.eq.LEADER_PENDING')
+                           .limit(5000)
+                     )
+                  );
+                  batchResults.forEach(res => {
+                     if (res.data) crossDateGudangRows.push(...res.data);
+                  });
                }
 
                // Merge and de-duplicate gudang rows
@@ -7746,45 +7743,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                ? ['LOGISTIK', 'Logistik']
                : [role.toUpperCase(), role.charAt(0).toUpperCase() + role.slice(1).toLowerCase()];
 
-            // A. Fetch Same-day Scans
-            const buildAuditQuery = (isCount = false) => {
-               let q = supabase.from('scanned_items');
-               if (isCount) {
-                  q = q.select('*', { count: 'exact', head: true });
-               } else {
-                  q = q.select('id, barcode, timestamp, status, menu_context, role');
-               }
-               if (roleList.length > 1) q = q.in('role', roleList);
-               else q = q.eq('role', role);
-               
-               q = q.gte('timestamp', d.startMs).lte('timestamp', d.endMs);
-               if (!isCount) {
-                  q = q.order('timestamp', { ascending: false });
-               }
-               return q;
-            };
+            // A. Fetch Same-day Scans (1 query cepat hingga 50.000 data via PostgREST limit baru)
+            let sameDayQuery = supabase
+               .from('scanned_items')
+               .select('id, barcode, timestamp, status, menu_context, role')
+               .gte('timestamp', d.startMs)
+               .lte('timestamp', d.endMs)
+               .order('timestamp', { ascending: false })
+               .limit(50000);
 
-            const [{ count: auditCount }, firstPage] = await Promise.all([
-               buildAuditQuery(true),
-               buildAuditQuery(false).range(0, 999)
-            ]);
+            if (roleList.length > 1) sameDayQuery = sameDayQuery.in('role', roleList);
+            else sameDayQuery = sameDayQuery.eq('role', role);
 
-            let sameDayData: any[] = [...(firstPage.data || [])];
-
-            if (auditCount && auditCount > 1000) {
-               const chunkSize = 1000;
-               const totalPages = Math.ceil(auditCount / chunkSize);
-               const batchPromises = [];
-               for (let j = 1; j < totalPages; j++) {
-                  const from = j * chunkSize;
-                  const to = from + chunkSize - 1;
-                  batchPromises.push(buildAuditQuery(false).range(from, to));
-               }
-               const batchResults = await Promise.all(batchPromises);
-               batchResults.forEach(r => {
-                  if (r.data) sameDayData.push(...r.data);
-               });
-            }
+            const { data: sameDayDataRows } = await sameDayQuery;
+            let sameDayData: any[] = sameDayDataRows || [];
 
             // B. Identify remaining admin barcodes not scanned on same day
             const sameDayBarcodes = new Set(
@@ -7792,34 +7764,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             );
             const remainingBarcodes = adminBarcodes.filter(bc => !sameDayBarcodes.has(bc));
 
-            // C. Fetch Cross-Date Scans (Past & Future) for remaining admin barcodes in parallel
+            // C. Fetch Cross-Date Scans (Past & Future) for remaining admin barcodes in parallel chunks of 1000
             let crossDateData: any[] = [];
             if (remainingBarcodes.length > 0) {
-               const chunkSize = 200;
+               const chunkSize = 1000;
                const chunks: string[][] = [];
                for (let i = 0; i < remainingBarcodes.length; i += chunkSize) {
                   chunks.push(remainingBarcodes.slice(i, i + chunkSize));
                }
 
-               // Process sequentially in small batches of 3 to prevent HTTP/2 connection overload
-               const CONCURRENT_LIMIT_R = 3;
-               for (let b = 0; b < chunks.length; b += CONCURRENT_LIMIT_R) {
-                  const batchSlice = chunks.slice(b, b + CONCURRENT_LIMIT_R);
-                  const batchResults = await Promise.all(
-                     batchSlice.map(chunk => {
-                        let q = supabase.from('scanned_items')
-                           .select('id, barcode, timestamp, status, menu_context, role')
-                           .in('barcode', chunk);
+               const batchResults = await Promise.all(
+                  chunks.map(chunk => {
+                     let q = supabase.from('scanned_items')
+                        .select('id, barcode, timestamp, status, menu_context, role')
+                        .in('barcode', chunk)
+                        .limit(5000);
 
-                        if (roleList.length > 1) q = q.in('role', roleList);
-                        else q = q.eq('role', role);
-                        return q;
-                     })
-                  );
-                  batchResults.forEach(res => {
-                     if (res.data) crossDateData.push(...res.data);
-                  });
-               }
+                     if (roleList.length > 1) q = q.in('role', roleList);
+                     else q = q.eq('role', role);
+                     return q;
+                  })
+               );
+               batchResults.forEach(res => {
+                  if (res.data) crossDateData.push(...res.data);
+               });
             }
 
             return [...sameDayData, ...crossDateData];
