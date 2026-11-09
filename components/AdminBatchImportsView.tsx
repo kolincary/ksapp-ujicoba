@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db } from '../services/firebaseClient';
 import { supabase } from '../services/supabaseClient';
-import { collection, getDocs, query, orderBy, limit, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
 import { AdminUser } from '../types';
 import { 
   Database, 
@@ -280,28 +278,40 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
     };
   }, [items, pickerNames]);
 
+  const mapSupabaseToItem = (row: any): AdminBatchImportItem => {
+    return {
+      id: row.id,
+      excelFilename: row.excel_filename || row.excelFilename || 'Tanpa Nama File',
+      staffName: row.staff_name || row.staffName || 'LAINNYA',
+      jumlah: row.jumlah ?? (Array.isArray(row.barcodes) ? row.barcodes.length : 0),
+      batchId: row.batch_id || row.batchId || '',
+      timestamp: row.timestamp || row.created_at || new Date().toISOString(),
+      createdAt: row.created_at || row.timestamp || new Date().toISOString(),
+      barcodes: Array.isArray(row.barcodes) ? row.barcodes : []
+    };
+  };
+
   const fetchRecentData = async () => {
     setLoading(true);
     setErrorMsg('');
     try {
-      let constraints: any[] = [orderBy('timestamp', 'desc')];
+      let q = supabase
+        .from('admin_batch_imports')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
       if (limitCount > 0) {
-        constraints.push(limit(limitCount));
+        q = q.limit(limitCount);
+      } else {
+        q = q.limit(200);
       }
 
-      const q = query(
-        collection(db, 'admin_batch_imports'),
-        ...constraints
-      );
-      const snapshot = await getDocs(q);
-      const data: AdminBatchImportItem[] = [];
-      snapshot.forEach((docSnap) => {
-        data.push({ id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as AdminBatchImportItem);
-      });
-      setItems(data);
+      const { data, error } = await q;
+      if (error) throw error;
+      setItems((data || []).map(mapSupabaseToItem));
     } catch (err: any) {
-      console.error('Error fetching admin_batch_imports data:', err);
-      setErrorMsg(err.message || 'Gagal memuat data dari Firestore');
+      console.error('Error fetching admin_batch_imports from Supabase VPS:', err);
+      setErrorMsg(err.message || 'Gagal memuat data dari Supabase VPS');
     } finally {
       setLoading(false);
     }
@@ -319,48 +329,66 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
     try {
       const term = searchTerm.trim();
       const termUpper = term.toUpperCase();
-      let data: AdminBatchImportItem[] = [];
+      let data: any[] = [];
 
       if (searchBy === 'id') {
-        const q = query(collection(db, 'admin_batch_imports'), where('__name__', '==', term));
-        const snapshot = await getDocs(q);
-        snapshot.forEach((docSnap) => {
-          data.push({ id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as AdminBatchImportItem);
-        });
+        const { data: res } = await supabase.from('admin_batch_imports').select('*').eq('id', term);
+        data = res || [];
       } else if (searchBy === 'barcode') {
-        // 1. Try exact array-contains query in Firestore
-        const qExact = query(collection(db, 'admin_batch_imports'), where('barcodes', 'array-contains', termUpper));
-        const snapshotExact = await getDocs(qExact);
-        snapshotExact.forEach((docSnap) => {
-          data.push({ id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as AdminBatchImportItem);
-        });
+        // 1. Try exact match via PostgreSQL JSONB contains operator
+        const { data: resExact, error: exErr } = await supabase
+          .from('admin_batch_imports')
+          .select('*')
+          .contains('barcodes', JSON.stringify([termUpper]));
 
-        // 2. If no exact match or for partial search, scan recent Firestore docs
-        if (data.length === 0) {
-          const qRecent = query(collection(db, 'admin_batch_imports'), orderBy('timestamp', 'desc'), limit(limitCount > 0 ? limitCount : 1000));
-          const snapRecent = await getDocs(qRecent);
-          snapRecent.forEach((docSnap) => {
-            const item = { id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as AdminBatchImportItem;
-            if (Array.isArray(item.barcodes) && item.barcodes.some(b => (b || '').toString().toUpperCase().includes(termUpper))) {
-              data.push(item);
-            }
-          });
+        if (resExact && resExact.length > 0) {
+          data = resExact;
+        } else {
+          // 2. Fallback scan recent records for partial match
+          const { data: recent } = await supabase
+            .from('admin_batch_imports')
+            .select('*')
+            .order('timestamp', { ascending: false })
+            .limit(limitCount > 0 ? limitCount : 1000);
+
+          data = (recent || []).filter(item => 
+            Array.isArray(item.barcodes) && item.barcodes.some((b: any) => (b || '').toString().toUpperCase().includes(termUpper))
+          );
         }
+      } else if (searchBy === 'staffName') {
+        const { data: res } = await supabase
+          .from('admin_batch_imports')
+          .select('*')
+          .ilike('staff_name', `%${term}%`)
+          .order('timestamp', { ascending: false })
+          .limit(limitCount > 0 ? limitCount : 500);
+        data = res || [];
+      } else if (searchBy === 'batchId') {
+        const { data: res } = await supabase
+          .from('admin_batch_imports')
+          .select('*')
+          .ilike('batch_id', `%${term}%`)
+          .order('timestamp', { ascending: false })
+          .limit(limitCount > 0 ? limitCount : 500);
+        data = res || [];
       } else {
-        const variations = Array.from(new Set([term, termUpper, term.toLowerCase()]));
-        const q = query(collection(db, 'admin_batch_imports'), where(searchBy, 'in', variations));
-        const snapshot = await getDocs(q);
-        snapshot.forEach((docSnap) => {
-          data.push({ id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as AdminBatchImportItem);
-        });
+        // excelFilename
+        const { data: res } = await supabase
+          .from('admin_batch_imports')
+          .select('*')
+          .ilike('excel_filename', `%${term}%`)
+          .order('timestamp', { ascending: false })
+          .limit(limitCount > 0 ? limitCount : 500);
+        data = res || [];
       }
       
-      setItems(data);
-      if (data.length === 0) {
+      const mapped = data.map(mapSupabaseToItem);
+      setItems(mapped);
+      if (mapped.length === 0) {
         setErrorMsg(`Tidak ditemukan data batch import yang cocok dengan ${searchBy === 'barcode' ? 'Nomor Resi' : searchBy}: "${searchTerm}"`);
       }
     } catch (err: any) {
-      console.error('Error searching firestore:', err);
+      console.error('Error searching Supabase VPS:', err);
       setErrorMsg(err.message || 'Gagal mencari data');
     } finally {
       setLoading(false);
@@ -380,28 +408,17 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
     try {
       const matchedMap = new Map<string, AdminBatchImportItem>();
       
-      // 1. In chunks of 30, query array-contains-any in Firestore
-      for (let i = 0; i < parsed.length; i += 30) {
-        const chunk = parsed.slice(i, i + 30);
-        try {
-          const q = query(
-            collection(db, 'admin_batch_imports'),
-            where('barcodes', 'array-contains-any', chunk)
-          );
-          const snap = await getDocs(q);
-          snap.forEach(docSnap => {
-            matchedMap.set(docSnap.id, { id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as AdminBatchImportItem);
-          });
-        } catch (e) {
-          console.warn("Array contains any failed, continuing fallback...", e);
-        }
-      }
+      // Query recent records from Supabase and filter against parsed barcodes
+      const { data: recent, error } = await supabase
+        .from('admin_batch_imports')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(limitCount > 0 ? limitCount : 1500);
 
-      // 2. Also scan recent batch imports from Firestore for any items containing the parsed barcodes
-      const qRecent = query(collection(db, 'admin_batch_imports'), orderBy('timestamp', 'desc'), limit(limitCount > 0 ? limitCount : 1000));
-      const snapRecent = await getDocs(qRecent);
-      snapRecent.forEach(docSnap => {
-        const item = { id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as AdminBatchImportItem;
+      if (error) throw error;
+
+      (recent || []).forEach(row => {
+        const item = mapSupabaseToItem(row);
         if (Array.isArray(item.barcodes) && item.barcodes.some(b => parsed.includes((b || '').toString().trim().toUpperCase()))) {
           matchedMap.set(item.id, item);
         }
@@ -413,7 +430,7 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
         setErrorMsg(`Tidak ditemukan data batch import yang memuat ${parsed.length} barcode yang dicari.`);
       }
     } catch (err: any) {
-      console.error('Error mass searching firestore:', err);
+      console.error('Error mass searching Supabase VPS:', err);
       setErrorMsg(err.message || 'Gagal mencari data massal');
     } finally {
       setLoading(false);
@@ -472,19 +489,20 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
   }, [items]);
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Yakin ingin menghapus data impor batch ini dari Firestore & Supabase secara permanen?')) {
+    if (!window.confirm('Yakin ingin menghapus data impor batch ini dari Supabase VPS secara permanen?')) {
       return;
     }
     
     try {
       const itemToDelete = items.find(item => item.id === id);
 
-      // 1. Delete from Firestore
-      await deleteDoc(doc(db, 'admin_batch_imports', id));
+      // 1. Delete from admin_batch_imports in Supabase VPS
+      await supabase.from('admin_batch_imports').delete().eq('id', id);
 
-      // 2. Delete from Supabase
+      // 2. Delete from Supabase batches & batch_items
       if (itemToDelete) {
         if (itemToDelete.batchId) {
+          await supabase.from('admin_batch_imports').delete().eq('batch_id', itemToDelete.batchId);
           const { data: matchedBatches } = await supabase.from('batches').select('id').eq('batch_no', itemToDelete.batchId);
           const matchingIds = (matchedBatches || []).map(b => b.id);
           if (matchingIds.length > 0) {
@@ -492,6 +510,9 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
             await supabase.from('batches').delete().in('id', matchingIds);
           }
         }
+        await supabase.from('batch_items').delete().eq('batch_id', id);
+        await supabase.from('batches').delete().eq('id', id);
+
         if (itemToDelete.barcodes && itemToDelete.barcodes.length > 0) {
           for (let i = 0; i < itemToDelete.barcodes.length; i += 500) {
             const chunk = itemToDelete.barcodes.slice(i, i + 500);
@@ -501,9 +522,9 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
       }
 
       setItems(items.filter(item => item.id !== id));
-      showToast('Data batch berhasil dihapus.');
+      showToast('Data batch berhasil dihapus dari Supabase VPS.');
     } catch (err: any) {
-      console.error('Error deleting document:', err);
+      console.error('Error deleting batch from Supabase:', err);
       alert('Gagal menghapus data: ' + err.message);
     }
   };
@@ -534,8 +555,6 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
     
     setIsSaving(true);
     try {
-      const docRef = doc(db, 'admin_batch_imports', editingItem.id);
-      
       // Parse current edited barcodes
       const parsedBarcodes = editBarcodesText
         .split(/[\r\n,;\t]+/)
@@ -544,21 +563,29 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
 
       const finalJumlah = parsedBarcodes.length > 0 ? parsedBarcodes.length : (editForm.jumlah || 0);
 
-      const dataToSave = { 
-        ...editForm,
-        barcodes: parsedBarcodes,
-        jumlah: finalJumlah
-      };
-      delete dataToSave.id;
-      
-      // 1. Update in Firestore
-      await updateDoc(docRef, dataToSave);
+      const excelName = editForm.excelFilename || editForm.excel_filename || editingItem.excelFilename;
+      const sName = editForm.staffName || editForm.staff_name || editingItem.staffName;
+      const bId = editForm.batchId || editForm.batch_id || editingItem.batchId;
+
+      // 1. Update directly in Supabase admin_batch_imports
+      const { error: updErr } = await supabase
+        .from('admin_batch_imports')
+        .update({
+          excel_filename: excelName,
+          staff_name: sName,
+          batch_id: bId,
+          barcodes: parsedBarcodes,
+          jumlah: finalJumlah
+        })
+        .eq('id', editingItem.id);
+
+      if (updErr) throw updErr;
 
       // 2. Sync with Supabase (batches and batch_items) if exists
       try {
         const oldBatchId = editingItem.batchId;
-        const newBatchId = dataToSave.batchId || oldBatchId;
-        const newExcelFilename = dataToSave.excelFilename || editingItem.excelFilename;
+        const newBatchId = bId || oldBatchId;
+        const newExcelFilename = excelName;
 
         if (oldBatchId) {
           const { data: matchedBatches } = await supabase
@@ -590,7 +617,7 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
                 const itemsToInsert = parsedBarcodes.map(bc => ({
                   batch_id: batchIdInDb,
                   barcode: bc,
-                  created_at: dataToSave.createdAt || editingItem.createdAt || new Date().toISOString()
+                  created_at: editingItem.createdAt || new Date().toISOString()
                 }));
 
                 for (let i = 0; i < itemsToInsert.length; i += 500) {
@@ -605,9 +632,18 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
         console.warn('Supabase sync on batch edit warning:', sbErr);
       }
       
-      setItems(items.map(item => item.id === editingItem.id ? { ...item, ...dataToSave } as AdminBatchImportItem : item));
+      const updatedItem: AdminBatchImportItem = {
+        ...editingItem,
+        excelFilename: excelName,
+        staffName: sName,
+        batchId: bId,
+        barcodes: parsedBarcodes,
+        jumlah: finalJumlah
+      };
+
+      setItems(items.map(item => item.id === editingItem.id ? updatedItem : item));
       setEditingItem(null);
-      showToast(`Data batch berhasil diperbarui (${parsedBarcodes.length} resi).`);
+      showToast(`Data batch berhasil diperbarui di Supabase VPS (${parsedBarcodes.length} resi).`);
     } catch (err: any) {
       console.error('Error updating document:', err);
       alert('Gagal mengupdate data: ' + err.message);
@@ -654,11 +690,11 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
                   Batch Imports Manager
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                  FIRESTORE
+                  SUPABASE VPS
                 </span>
               </div>
               <p className="text-gray-500 dark:text-gray-400 text-xs sm:text-sm mt-0.5">
-                Kelola data collection <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded text-emerald-600 dark:text-emerald-400">admin_batch_imports</code> secara langsung
+                Kelola data tabel <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded text-emerald-600 dark:text-emerald-400">admin_batch_imports</code> secara langsung di Supabase VPS
               </p>
             </div>
           </div>
