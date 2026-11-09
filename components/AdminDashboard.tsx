@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { UserRole, UserPermissions, UserPins, AdminUser, Employee, AdminDashboardProps, UserManualInputAccess, AdminView, AdminShiftNote, AdminShiftNoteRead } from '../types';
 import { supabase, supabaseNew } from '../services/supabaseClient';
 import { gineeSupabase } from '../services/supabaseGineeClient';
-import { syncGineeCancelledOrdersToKalindo } from '../services/gineeSupabaseService';
+import { syncGineeCancelledOrdersToKalindo, safeIsoDate } from '../services/gineeSupabaseService';
 import { isGineeSyncEnabled, setGineeSyncEnabled } from '../services/gineeGlobalSyncService';
 import { logDeletionAction } from '../services/deletionLogService';
 // Firestore imports removed - Fully migrated to Supabase VPS
@@ -3046,7 +3046,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const [isStockOpnamePagiExpanded, setIsStockOpnamePagiExpanded] = useState(true);
    const [isImportCancelModalOpen, setIsImportCancelModalOpen] = useState(false);
    const [cancelImportFile, setCancelImportFile] = useState<File | null>(null);
-   const [cancelExtractedData, setCancelExtractedData] = useState<{ orderId: string; barcode: string }[]>([]);
+   const [cancelExtractedData, setCancelExtractedData] = useState<{ orderId: string; barcode: string; cancelledAt?: string }[]>([]);
    const [cancelExtractedSummary, setCancelExtractedSummary] = useState<{ totalRows: number; validBarcodes: number; columnsFound: string[] }>({ totalRows: 0, validBarcodes: 0, columnsFound: [] });
    const [isProcessingCancelImport, setIsProcessingCancelImport] = useState(false);
    const [cancelImportDragOver, setCancelImportDragOver] = useState(false);
@@ -3054,7 +3054,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const handleCancelFileSelect = async (file: File) => {
       setCancelImportFile(file);
       try {
-         let extracted: { orderId: string; barcode: string }[] = [];
+         let extracted: { orderId: string; barcode: string; cancelledAt?: string }[] = [];
          const seenBarcodes = new Set<string>();
          let totalRows = 0;
          let colsFound: string[] = [];
@@ -3081,6 +3081,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             
             let orderIdIdx = -1;
             let barcodeIdx = -1;
+            let labelStatusIdx = -1;
+            let cancelTimeIdx = -1;
 
             headers.forEach((h, idx) => {
                const norm = h.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -3088,9 +3090,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   orderIdIdx = idx;
                   colsFound.push(`ID: "${h}"`);
                }
-               if (barcodeIdx === -1 && (norm.includes('resi') || norm.includes('awb') || norm.includes('tracking') || norm.includes('pelacakan') || norm.includes('waybill') || norm.includes('barcode'))) {
+               if (barcodeIdx === -1 && (norm.includes('resi') || norm.includes('awb') || norm.includes('notracking') || norm.includes('tracking') || norm.includes('pelacakan') || norm.includes('waybill') || norm.includes('barcode'))) {
                   barcodeIdx = idx;
-                  colsFound.push(`Barcode: "${h}"`);
+                  colsFound.push(`Resi/AWB: "${h}"`);
+               }
+               if (labelStatusIdx === -1 && (norm.includes('statuslabel') || norm.includes('labelstatus') || norm.includes('cetaklabel') || norm.includes('statuscetak') || norm.includes('shippinglabel'))) {
+                  labelStatusIdx = idx;
+                  colsFound.push(`Status Label: "${h}"`);
+               }
+               if (cancelTimeIdx === -1 && (norm.includes('waktupembatalan') || norm.includes('tanggalpembatalan') || norm.includes('canceltime') || norm.includes('cancelledtime') || norm.includes('cancellationtime'))) {
+                  cancelTimeIdx = idx;
+                  colsFound.push(`Waktu Batal: "${h}"`);
                }
             });
 
@@ -3106,9 +3116,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             if (barcodeIdx === -1) {
                headers.forEach((h, idx) => {
                   const norm = h.toLowerCase();
-                  if (barcodeIdx === -1 && idx !== orderIdIdx && (norm.includes('resi') || norm.includes('awb') || norm.includes('pelacakan') || norm.includes('tracking') || norm.includes('no'))) {
+                  if (barcodeIdx === -1 && idx !== orderIdIdx && idx !== labelStatusIdx && idx !== cancelTimeIdx && (norm.includes('resi') || norm.includes('awb') || norm.includes('pelacakan') || norm.includes('tracking'))) {
                      barcodeIdx = idx;
-                     colsFound.push(`Barcode: "${h}"`);
+                     colsFound.push(`Resi/AWB: "${h}"`);
                   }
                });
             }
@@ -3119,26 +3129,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                const row = arrayOfRows[i];
                if (!Array.isArray(row) || row.length === 0) continue;
 
+               // 1. Filter: HANYA ambil resi yang Status Label: "Label telah dicetak" (PRINTED)
+               if (labelStatusIdx !== -1) {
+                  const labelStatusVal = String(row[labelStatusIdx] || '').trim().toUpperCase();
+                  if (labelStatusVal && (labelStatusVal.includes('BELUM') || labelStatusVal.includes('UNPRINTED'))) {
+                     continue; // Lewati jika belum dicetak
+                  }
+               }
+
                let rawBarcode = barcodeIdx !== -1 ? String(row[barcodeIdx] || '').trim() : '';
                let rawOrderId = orderIdIdx !== -1 ? String(row[orderIdIdx] || '').trim() : '';
 
                let cleanBarcode = rawBarcode.replace(/[^A-Z0-9]/gi, '').toUpperCase();
                let cleanOrderId = rawOrderId.replace(/[^A-Z0-9_-]/gi, '').toUpperCase();
 
-               if (!cleanBarcode || cleanBarcode.length < 6 || reservedWords.has(cleanBarcode)) {
+               // Aturan Ketat: HANYA ambil resi / AWB, BUKAN ID pesanan / nomor pemesanan!
+               const isRealAwb = (val: string) => {
+                  return (
+                     val.length >= 6 &&
+                     !reservedWords.has(val) &&
+                     !val.startsWith('SO') &&
+                     val !== cleanOrderId &&
+                     !/^\d{18,}$/.test(val) // Jangan ambil order SN numerik panjang
+                  );
+               };
+
+               if (!cleanBarcode || !isRealAwb(cleanBarcode)) {
+                  cleanBarcode = '';
+                  // Cari kandidat resi kurir di kolom lain selain ID Pesanan
                   for (let j = 0; j < row.length; j++) {
+                     if (j === orderIdIdx || j === labelStatusIdx || j === cancelTimeIdx) continue;
                      const val = String(row[j] || '').trim();
                      const candidate = val.replace(/[^A-Z0-9]/gi, '').toUpperCase();
-                     if (candidate.length >= 6 && candidate.length <= 35 && !reservedWords.has(candidate)) {
-                        if (!cleanBarcode || reservedWords.has(cleanBarcode)) cleanBarcode = candidate;
-                        else if (!cleanOrderId && candidate !== cleanBarcode) cleanOrderId = candidate;
+                     if (isRealAwb(candidate)) {
+                        cleanBarcode = candidate;
+                        break;
                      }
                   }
                }
 
-               if (cleanBarcode && cleanBarcode.length >= 6 && !seenBarcodes.has(cleanBarcode) && !reservedWords.has(cleanBarcode)) {
+               // Ekstrak Waktu Pembatalan Ginee jika ada di file
+               let rowCancelledAt: string | undefined = undefined;
+               if (cancelTimeIdx !== -1) {
+                  const rawCancel = String(row[cancelTimeIdx] || '').trim();
+                  if (rawCancel) {
+                     rowCancelledAt = safeIsoDate(rawCancel) || undefined;
+                  }
+               }
+
+               // Simpan HANYA jika ditemukan nomor resi kurir (AWB) yang sah
+               if (cleanBarcode && isRealAwb(cleanBarcode) && !seenBarcodes.has(cleanBarcode)) {
                   seenBarcodes.add(cleanBarcode);
-                  extracted.push({ orderId: cleanOrderId || cleanBarcode, barcode: cleanBarcode });
+                  extracted.push({
+                     orderId: cleanOrderId || cleanBarcode,
+                     barcode: cleanBarcode,
+                     cancelledAt: rowCancelledAt
+                  });
                }
             }
          }
@@ -3154,20 +3200,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                const parts = line.split(/[,;\t"']+/).map(p => p.trim()).filter(Boolean);
                parts.forEach(part => {
                   const candidate = part.replace(/[^A-Z0-9]/gi, '').toUpperCase();
-                  if (candidate.length >= 6 && candidate.length <= 35 && !reservedWords.has(candidate) && !seenBarcodes.has(candidate)) {
+                  if (
+                     candidate.length >= 8 &&
+                     candidate.length <= 30 &&
+                     !reservedWords.has(candidate) &&
+                     !candidate.startsWith('SO') &&
+                     !/^\d{18,}$/.test(candidate) &&
+                     !seenBarcodes.has(candidate)
+                  ) {
                      seenBarcodes.add(candidate);
                      extracted.push({ orderId: candidate, barcode: candidate });
                   }
                });
             });
-            colsFound.push("Auto Text Scanner");
+            colsFound.push("Auto Resi Scanner");
          }
 
          setCancelExtractedData(extracted);
          setCancelExtractedSummary({
             totalRows: totalRows,
             validBarcodes: extracted.length,
-            columnsFound: colsFound.length > 0 ? Array.from(new Set(colsFound)) : ["Auto Barcode Scanner"]
+            columnsFound: colsFound.length > 0 ? Array.from(new Set(colsFound)) : ["Auto Resi Scanner"]
          });
       } catch (err: any) {
          console.error("Gagal membaca file excel cancel:", err);
@@ -3181,9 +3234,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       try {
          const newItems = cancelExtractedData.map(item => ({
             barcode: item.barcode,
-            reason: item.orderId ? `Import Excel (ID Pesanan: ${item.orderId})` : 'Import Excel Cancel',
-            cancelled_at: new Date().toISOString(),
-            cancelled_by: currentAdmin?.username || 'Admin'
+            tracking_no: item.barcode,
+            order_sn: item.orderId !== item.barcode ? item.orderId : null,
+            reason: item.orderId && item.orderId !== item.barcode ? `Import Excel (ID Pesanan: ${item.orderId})` : 'Import Excel Cancel',
+            cancelled_at: item.cancelledAt || new Date().toISOString(),
+            cancelled_by: currentAdmin?.username || 'Admin',
+            is_active: true
          }));
 
          for (let i = 0; i < newItems.length; i += 500) {
@@ -3209,7 +3265,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             });
          }
 
-         setSuccessToast(`Berhasil menyimpan ${cancelExtractedData.length} barcode cancel ke database!`);
+         setSuccessToast(`Berhasil menyimpan ${cancelExtractedData.length} resi cancel ke database!`);
          setIsImportCancelModalOpen(false);
          setCancelImportFile(null);
          setCancelExtractedData([]);
@@ -4629,7 +4685,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          const fetchBatchSummaryData = async () => {
             setIsLoadingBatchSummary(true);
             try {
-               await syncAdminBatchImportsToBatches();
                let query = supabase.from('batches').select('*', { count: 'exact' });
 
                if (batchDateFilter) {
@@ -4663,7 +4718,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    query = query.or(`batch_no.ilike.%${fuzzySearch}%,excel_filename.ilike.%${fuzzySearch}%`);
                 }
 
-               const { data: batches, error } = await query.order('created_at', { ascending: false }).limit(500);
+               const { data: batches, error } = await query.order('created_at', { ascending: false }).limit(1000);
                if (error) {
                   console.error("Error fetching batches for summary:", error);
                   setIsLoadingBatchSummary(false);
@@ -4672,13 +4727,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                const summaryData = batches || [];
                
                 // Pre-fill Leader Staff and Auto-Check Progress efficiently
-                // Pre-fill Leader Staff and Auto-Check Progress efficiently
                 if (summaryData.length > 0) {
-                   // 1. Fetch all batch items for these batches in chunked batch_id queries (max 50 per query)
+                   // 1. Fetch all batch items for these batches in large 100 batch chunks
                    const batchIds = summaryData.map((b: any) => b.id);
                    const batchChunks: string[][] = [];
-                   for (let i = 0; i < batchIds.length; i += 15) {
-                      batchChunks.push(batchIds.slice(i, i + 15));
+                   for (let i = 0; i < batchIds.length; i += 100) {
+                      batchChunks.push(batchIds.slice(i, i + 100));
                    }
                    const itemResults = await Promise.all(
                       batchChunks.map(chunk =>
@@ -4687,6 +4741,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                .from('batch_items')
                                .select('barcode, batch_id')
                                .in('batch_id', chunk)
+                               .limit(50000)
                          ).catch(() => ({ data: [] }))
                       )
                    );
@@ -4698,31 +4753,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    if (allItemsData && allItemsData.length > 0) {
                       const allBarcodes = Array.from(new Set(allItemsData.map((item: any) => item.barcode).filter(Boolean)));
                       
-                      // 2. Fetch all scans for these barcodes in safe 200 chunks (3 concurrent requests max)
-                      const scanChunks: string[][] = [];
-                      for (let i = 0; i < allBarcodes.length; i += 200) {
-                         scanChunks.push(allBarcodes.slice(i, i + 200));
+                      // 2. Fetch all scans for this date using fast indexed query (1 request)
+                      const filterDateStr = batchDateFilter || new Date().toISOString().split('T')[0];
+                      const { data: dateScans } = await Promise.resolve(
+                         supabase
+                            .from('scanned_items')
+                            .select('barcode, role')
+                            .eq('scan_date', filterDateStr)
+                            .in('role', ['PICKER', 'PICKER_2', 'SORTIR_BATCH', 'CHECKER', 'OJOL'])
+                            .limit(50000)
+                      ).catch(() => ({ data: [] }));
+
+                      if (dateScans) {
+                         dateScans.forEach((row: any) => {
+                            if (row.barcode) {
+                               if (!scannedBarcodesMap.has(row.barcode)) {
+                                  scannedBarcodesMap.set(row.barcode, new Set());
+                               }
+                               scannedBarcodesMap.get(row.barcode).add(row.role);
+                            }
+                         });
                       }
-                      
-                      for (let i = 0; i < scanChunks.length; i += 3) {
-                         const slice = scanChunks.slice(i, i + 3);
+
+                      // Check any remaining unscanned barcodes in large chunks of 1000
+                      const remainingUnscanned = allBarcodes.filter(bc => !scannedBarcodesMap.has(bc));
+                      if (remainingUnscanned.length > 0) {
+                         const scanChunks: string[][] = [];
+                         for (let i = 0; i < remainingUnscanned.length; i += 1000) {
+                            scanChunks.push(remainingUnscanned.slice(i, i + 1000));
+                         }
                          const results = await Promise.all(
-                            slice.map(chunk =>
+                            scanChunks.map(chunk =>
                                Promise.resolve(
                                   supabase.from('scanned_items')
                                      .select('barcode, role')
                                      .in('barcode', chunk)
                                      .in('role', ['PICKER', 'PICKER_2', 'SORTIR_BATCH', 'CHECKER', 'OJOL'])
+                                     .limit(5000)
                                ).catch(() => ({ data: [], error: null }))
                             )
                          );
                          results.forEach(res => {
                             if (res?.data) {
                                res.data.forEach((row: any) => {
-                                  if (!scannedBarcodesMap.has(row.barcode)) {
-                                     scannedBarcodesMap.set(row.barcode, new Set());
+                                  if (row.barcode) {
+                                     if (!scannedBarcodesMap.has(row.barcode)) {
+                                        scannedBarcodesMap.set(row.barcode, new Set());
+                                     }
+                                     scannedBarcodesMap.get(row.barcode).add(row.role);
                                   }
-                                  scannedBarcodesMap.get(row.barcode).add(row.role);
                                });
                             }
                          });
@@ -6994,7 +7073,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsLoadingBatchData(true);
       setIsSelectAllBatchFiltered(false);
       try {
-         await syncAdminBatchImportsToBatches();
          const startOfDay = batchDateFilter ? new Date(batchDateFilter + 'T00:00:00') : new Date();
          let endOfDay = batchDateFilter ? new Date(batchDateFilter + 'T23:59:59') : new Date();
          if (!batchDateFilter) {
@@ -7017,7 +7095,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             .gte('created_at', startOfDay.toISOString())
             .lte('created_at', endOfDay.toISOString())
             .order('created_at', { ascending: false })
-            .limit(500);
+            .limit(1000);
 
          if (batchSearch) {
             const fuzzySearch = batchSearch.trim().replace(/\s+/g, '%');
@@ -7044,11 +7122,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          const dPrevStr2 = `${String(dPrev.getDate()).padStart(2, '0')}/${String(dPrev.getMonth() + 1).padStart(2, '0')}/${dPrev.getFullYear()}`;
          const leaderDates = Array.from(new Set([dFormatted1, dFormatted2, dPrevStr1, dPrevStr2]));
 
-         // Fetch batch items per batch in chunks with created_at range filter to prevent full-table scan timeouts
+         // Fetch batch items in chunks of 100 batches with limit 50000
          const batchIds = batches.map(b => b.id);
          const batchMap = new Map(batches.map(b => [b.id, b]));
-         // Use CHUNK_SIZE = 15 batches so total items per query stays well under Supabase PostgREST 1000-row limit!
-         const CHUNK_SIZE = 15;
+         const CHUNK_SIZE = 100;
          const batchChunks: string[][] = [];
          for (let i = 0; i < batchIds.length; i += CHUNK_SIZE) {
             batchChunks.push(batchIds.slice(i, i + CHUNK_SIZE));
@@ -7058,9 +7135,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             let q = supabase
                .from('batch_items')
                .select('id, barcode, batch_id, created_at, msku, qty, order_id')
-               .in('batch_id', chunk);
+               .in('batch_id', chunk)
+               .limit(50000);
 
-            // batch_items is already filtered by in('batch_id', chunk)
             return Promise.resolve(q).catch(() => ({ data: [] }));
          });
 
@@ -7118,30 +7195,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          // Extract all distinct barcodes from itemsData for accurate cross-matching
          const allBarcodes = Array.from(new Set((itemsData || []).map((i: any) => i.barcode?.trim().toUpperCase()).filter(Boolean)));
 
-         // Build lookup maps in O(1) from Supabase scans with safe concurrency
+         // Build lookup maps in O(1) from Supabase scans with fast indexed queries
          const scannedBarcodesMap = new Map<string, string>();
 
          if (allBarcodes.length > 0) {
-            const CHUNK_SIZE = 500;
-            const barcodeChunks: string[][] = [];
-            for (let i = 0; i < allBarcodes.length; i += CHUNK_SIZE) {
-               barcodeChunks.push(allBarcodes.slice(i, i + CHUNK_SIZE));
+            // Pass 1: Ambil pemindaian hari ini langsung via index scan_date (1 query)
+            const { data: dateScans } = await Promise.resolve(
+               supabase
+                  .from('scanned_items')
+                  .select('barcode, user_email, employee_name, role')
+                  .eq('scan_date', filterDateStr)
+                  .in('role', ['PICKER', 'PICKER_2', 'OJOL'])
+                  .limit(50000)
+            ).catch(() => ({ data: [] }));
+
+            if (dateScans) {
+               dateScans.forEach((s: any) => {
+                  if (s.barcode) {
+                     const key = s.barcode.trim().toUpperCase();
+                     const staffName = s.employee_name || s.user_email || 'Scanned';
+                     scannedBarcodesMap.set(key, staffName);
+                  }
+               });
             }
-            // 3 concurrent requests max to prevent HTTP/2 overload
-            for (let i = 0; i < barcodeChunks.length; i += 4) {
-               const slice = barcodeChunks.slice(i, i + 4);
-               const scannedResults = await Promise.all(
-                  slice.map(chunk =>
+
+            // Pass 2: Untuk barcode yang belum terdeteksi discan pada hari ini, cek dalam bongkahan 1.000 barcode
+            const remainingUnscanned = allBarcodes.filter(bc => !scannedBarcodesMap.has(bc));
+            if (remainingUnscanned.length > 0) {
+               const checkChunks: string[][] = [];
+               for (let i = 0; i < remainingUnscanned.length; i += 1000) {
+                  checkChunks.push(remainingUnscanned.slice(i, i + 1000));
+               }
+               const extraResults = await Promise.all(
+                  checkChunks.map(chunk =>
                      Promise.resolve(
                         supabase
                            .from('scanned_items')
                            .select('barcode, user_email, employee_name, role')
                            .in('role', ['PICKER', 'PICKER_2', 'OJOL'])
                            .in('barcode', chunk)
+                           .limit(5000)
                      ).catch(() => ({ data: [], error: null }))
                   )
                );
-               scannedResults.forEach(res => {
+               extraResults.forEach((res: any) => {
                   if (res?.data) {
                      res.data.forEach((s: any) => {
                         if (s.barcode) {
@@ -24802,7 +24899,11 @@ LXAD-1234567890`}
                                                          <div className="min-w-0 flex-1">
                                                             <p className="text-sm font-mono font-bold text-gray-900 dark:text-gray-100 truncate select-all">{order.barcode}</p>
                                                             <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 flex-wrap mt-0.5">
-                                                               <span className="font-semibold">{new Date(order.cancelled_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} <span className="font-bold text-gray-700 dark:text-gray-300 ml-0.5">{new Date(order.cancelled_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' })} WIB</span></span>
+                                                               <span className="inline-flex items-center gap-1 font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-md border border-rose-200/80 dark:border-rose-900/60">
+                                                                  <Clock size={11} />
+                                                                  <span>Waktu Batal:</span>
+                                                                  <span className="font-bold">{new Date(order.cancelled_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} {new Date(order.cancelled_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' })} WIB</span>
+                                                               </span>
                                                                <span>•</span>
                                                                <span className="font-semibold text-indigo-600 dark:text-indigo-400">by {order.cancelled_by}</span>
                                                                {order.reason && (

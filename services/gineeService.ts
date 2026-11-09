@@ -22,6 +22,8 @@ export interface GineeOrder {
   isCod?: boolean;
   isPreOrder?: boolean;
   labelPrinted?: boolean;
+  shippingLabelStatus?: string;
+  cancelTime?: string;
   orderTime: string;
   payTime: string;
   shipByTime: string;
@@ -1049,6 +1051,27 @@ export function parseGineeOrderHtml(html: string): GineeOrder[] {
       block.match(/([0-9]{2}-[0-9]{2}-[0-9]{4} [0-9]{2}:[0-9]{2})/);
     const deadline = deadlineMatch ? deadlineMatch[1].trim() : '23-10-2026 23:59';
 
+    // 11b. Waktu Pembatalan & Pembuatan (dari kolom Durasi Ginee)
+    const cancelMatch =
+      block.match(/Waktu Pembatalan[\s:：]*<[^>]*>([0-9-]+\s+[0-9:]+)<\/[^>]*>/i) ||
+      block.match(/Waktu Pembatalan[\s:：]*([0-9-]+\s+[0-9:]+)/i) ||
+      block.match(/Cancel(?:led)? Time[\s:：]*([0-9-]+\s+[0-9:]+)/i);
+    const cancelTime = cancelMatch ? cancelMatch[1].trim() : undefined;
+
+    const createMatch =
+      block.match(/Waktu Pembuatan[\s:：]*<[^>]*>([0-9-]+\s+[0-9:]+)<\/[^>]*>/i) ||
+      block.match(/Waktu Pembuatan[\s:：]*([0-9-]+\s+[0-9:]+)/i);
+    const orderCreateTime = createMatch ? createMatch[1].trim() : new Date().toISOString();
+
+    // 11c. Status Label (Label telah dicetak vs Belum dicetak)
+    const labelStatusMatch =
+      block.match(/Status Label[\s:：]*([A-Za-z\s]+)/i) ||
+      block.match(/(Label (?:telah|sudah) dicetak|Belum dicetak)/i);
+    const isLabelPrinted = Boolean(
+      (labelStatusMatch && /dicetak|printed/i.test(labelStatusMatch[1])) ||
+      (trackingNo && trackingNo !== '-' && trackingNo.length >= 6)
+    );
+
     // 12. Order SN (e.g. 2610229T4BFTW8 or 261022A55DQ92X)
     const orderSnMatch = block.match(/\b([0-9]{2}[0-9A-Za-z]{10,18})\b/);
     const orderSn = orderSnMatch ? orderSnMatch[1] : (trackingNo ? `ORD-${trackingNo.slice(-8)}` : `ORD-${Date.now()}`);
@@ -1088,8 +1111,10 @@ export function parseGineeOrderHtml(html: string): GineeOrder[] {
       paymentMethod: 'ShopeePay',
       isCod: false,
       isPreOrder: false,
-      labelPrinted: Boolean(trackingNo && trackingNo !== '-'),
-      orderTime: new Date().toISOString(),
+      labelPrinted: isLabelPrinted,
+      shippingLabelStatus: isLabelPrinted ? 'PRINTED' : 'UNPRINTED',
+      cancelTime,
+      orderTime: orderCreateTime,
       payTime: new Date().toISOString(),
       shipByTime: deadline,
       trackingNo,
@@ -1200,6 +1225,8 @@ export function parseGineeOrderCsv(csvText: string): GineeOrder[] {
   const colPlatform = header.findIndex(h => h === 'channel' || h === 'saluran' || h === 'platform');
   const colStatus = header.findIndex(h => h === 'status' || h === 'status pesanan');
   const colPayMethod = header.findIndex(h => h === 'pembayaran' || h === 'metode pembayaran');
+  const colCancelDate = header.findIndex(h => h === 'waktu pembatalan' || h === 'tanggal pembatalan' || h === 'cancel time' || h === 'cancelled time' || h === 'cancellation time' || h.includes('pembatalan'));
+  const colLabelStatus = header.findIndex(h => h === 'status label' || h === 'label status' || h === 'cetak label' || h === 'status cetak' || h === 'shipping label status' || h.includes('label'));
 
   const orderMap = new Map<string, GineeOrder>();
   let lastOrderSn = '';
@@ -1279,6 +1306,10 @@ export function parseGineeOrderCsv(csvText: string): GineeOrder[] {
       else if (statusRaw.includes('BELUM') || statusRaw.includes('MENUNGGU') || statusRaw.includes('UNPAID')) mappedStatus = 'UNPAID';
       else if (statusRaw.includes('LUNAS') || statusRaw.includes('PAID')) mappedStatus = 'READY_TO_SHIP';
 
+      const cancelDate = colCancelDate >= 0 && cols[colCancelDate] ? cols[colCancelDate].trim() : undefined;
+      const labelStatusRaw = colLabelStatus >= 0 && cols[colLabelStatus] ? cols[colLabelStatus].trim().toUpperCase() : '';
+      const isLabelPrinted = labelStatusRaw ? (labelStatusRaw.includes('PRINTED') || labelStatusRaw.includes('DICETAK')) : Boolean(trackingNo && trackingNo !== '-');
+
       orderMap.set(orderSn, {
         orderSn,
         channelOrderSn,
@@ -1290,7 +1321,9 @@ export function parseGineeOrderCsv(csvText: string): GineeOrder[] {
         paymentMethod: payMethod,
         isCod,
         isPreOrder: false,
-        labelPrinted: Boolean(trackingNo && trackingNo !== '-'),
+        labelPrinted: isLabelPrinted,
+        shippingLabelStatus: isLabelPrinted ? 'PRINTED' : 'UNPRINTED',
+        cancelTime: cancelDate,
         orderTime: orderDate,
         payTime: payDate,
         shipByTime: deadline,
@@ -2239,11 +2272,26 @@ export async function fetchGineeOrders(params: {
               raw.labelPrinted ||
               raw.isPrinted ||
               raw.printStatus === 'PRINTED' ||
+              raw.shippingLabelStatus === 'PRINTED' ||
               raw.waybillPrinted ||
-              (raw.shippingDocumentInfo && raw.shippingDocumentInfo.isPrinted) ||
+              (raw.shippingDocumentInfo && (raw.shippingDocumentInfo.isPrinted || raw.shippingDocumentInfo.shippingLabelStatus === 'PRINTED')) ||
               (resolvedTrackingNo && resolvedTrackingNo !== '-' && resolvedTrackingNo.length > 5) ||
               knownMatch?.labelPrinted
             ),
+            shippingLabelStatus:
+              raw.shippingLabelStatus ||
+              raw.printStatus ||
+              raw.shippingLabelPrintStatus ||
+              (raw.isPrintWaybill || raw.isPrinted || (resolvedTrackingNo && resolvedTrackingNo !== '-' && resolvedTrackingNo.length > 5) ? 'PRINTED' : 'UNPRINTED'),
+            cancelTime:
+              raw.cancelTime ||
+              raw.cancelledTime ||
+              raw.cancelAt ||
+              raw.cancelledAt ||
+              raw.externalCancelAt ||
+              raw.externalCancelTime ||
+              (String(raw.orderStatus || raw.status).toUpperCase().includes('CANCEL') ? (raw.lastUpdateAt || raw.externalUpdateAt) : undefined) ||
+              knownMatch?.cancelTime,
             orderTime: raw.createAt || raw.orderTime || raw.createTime || raw.createdTime || knownMatch?.orderTime || new Date().toISOString(),
             payTime: raw.payAt || raw.payTime || knownMatch?.payTime || '-',
             shipByTime: resolvedDeadline,

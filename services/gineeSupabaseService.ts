@@ -8,9 +8,25 @@ export const GINEE_CANCELLATIONS_TABLE = 'cancelled_orders';
 
 /**
  * Helper aman untuk parsing tanggal ISO (mencegah RangeError: Invalid time value jika nilai dari Ginee '-')
+ * Mendukung format ISO UTC, format lokal Indonesia (DD-MM-YYYY HH:mm), dan slash (DD/MM/YYYY HH:mm).
  */
-function safeIsoDate(val: any): string | null {
+export function safeIsoDate(val: any): string | null {
   if (!val || val === '-' || val === '0' || val === 'null' || val === 'undefined') return null;
+  if (typeof val === 'string') {
+    const s = val.trim();
+    // Check DD-MM-YYYY or DD/MM/YYYY with optional time
+    const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      const year = parseInt(dmyMatch[3], 10);
+      const hour = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+      const min = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+      const sec = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+      const dt = new Date(year, month, day, hour, min, sec);
+      if (!isNaN(dt.getTime())) return dt.toISOString();
+    }
+  }
   try {
     const d = new Date(val);
     if (isNaN(d.getTime())) return null;
@@ -226,87 +242,94 @@ export async function saveGineeOrdersToSupabase(
         orderRows.push(orderRow);
 
         // 2. Jika status Batal, masukkan ke daftar cancelRows untuk cancelled_orders
-        // MENCATAT BAIK RESI KURIR (AWB) MAUPUN NO PESANAN TOKO MARKETPLACE!
+        // ATURAN KETAT KALINDO:
+        // A. HANYA ambil data cancel jika status label: "Label telah dicetak" (PRINTED)
+        // B. Waktu & tanggal diambil berdasarkan Waktu Pembatalan (cancelTime / cancelled_at), BUKAN Waktu Pembuatan
+        // C. Barcode HANYA berupa nomor resi/AWB kurir, BUKAN id pesanan / no. pemesanan toko
         if (normalizedSt === 'CANCELLED') {
-          const cancelReason =
-            order.note ||
-            (order as any).rawPayload?.cancelReason ||
-            (order as any).rawPayload?.reason ||
-            'Dibatalkan di Marketplace / Ginee OMS';
+          const rawP = (order as any).rawPayload || {};
+          const isLabelPrinted = Boolean(
+            order.labelPrinted === true ||
+            (order as any).shippingLabelStatus === 'PRINTED' ||
+            (order as any).printStatus === 'PRINTED' ||
+            String(rawP.shippingLabelStatus || '').toUpperCase() === 'PRINTED' ||
+            String(rawP.printStatus || '').toUpperCase() === 'PRINTED' ||
+            String(rawP.shippingDocumentInfo?.shippingLabelStatus || '').toUpperCase() === 'PRINTED' ||
+            String(rawP.shippingLabelPrintStatus || '').toUpperCase() === 'PRINTED' ||
+            /PRINTED|DICETAK|TELAH DICETAK/i.test(String((order as any).shippingLabelStatus || rawP.shippingLabelStatus || ''))
+          );
 
-          // Kumpulkan seluruh kandidat AWB unik
-          const trackingCandidates = new Set<string>();
-          if (cleanTracking && cleanTracking !== '-') {
-            trackingCandidates.add(cleanTracking);
-          }
-          if (Array.isArray(order.allTrackingNos)) {
-            for (const t of order.allTrackingNos) {
-              const cleanT = String(t || '').trim().toUpperCase();
-              if (cleanT && cleanT !== '-') {
-                trackingCandidates.add(cleanT);
+          // Saring ketat: HANYA proses jika status label: "label telah dicetak"!
+          if (isLabelPrinted) {
+            // Ekstrak WAKTU PEMBATALAN resmi dari Ginee (BUKAN waktu pembuatan!)
+            const cancelTimeVal =
+              order.cancelTime ||
+              (order as any).cancelledTime ||
+              (order as any).cancelAt ||
+              (order as any).cancelledAt ||
+              rawP.cancelTime ||
+              rawP.cancelAt ||
+              rawP.cancelledTime ||
+              rawP.cancelledAt ||
+              rawP.externalCancelAt ||
+              rawP.externalCancelTime ||
+              rawP.lastUpdateAt ||
+              rawP.externalUpdateAt;
+
+            const safeCancelTime = safeIsoDate(cancelTimeVal) || new Date().toISOString();
+
+            const cancelReason =
+              order.note ||
+              rawP.cancelReason ||
+              rawP.reason ||
+              'Dibatalkan di Marketplace / Ginee OMS';
+
+            // Kumpulkan seluruh kandidat AWB/Resi kurir unik (MUTLAK: HANYA RESI, BUKAN ID PESANAN)
+            const trackingCandidates = new Set<string>();
+            const isTrackingAwb = (t: string) => {
+              const clean = t.trim().toUpperCase();
+              return (
+                clean.length >= 6 &&
+                clean !== '-' &&
+                !clean.startsWith('SO') &&
+                clean !== cleanOrderSn &&
+                clean !== cleanChannelSn &&
+                !/^\d{18,}$/.test(clean) // menolak order SN numerik panjang shopee/tiktok
+              );
+            };
+
+            if (cleanTracking && isTrackingAwb(cleanTracking)) {
+              trackingCandidates.add(cleanTracking);
+            }
+            if (Array.isArray(order.allTrackingNos)) {
+              for (const t of order.allTrackingNos) {
+                const cleanT = String(t || '').trim().toUpperCase();
+                if (isTrackingAwb(cleanT)) {
+                  trackingCandidates.add(cleanT);
+                }
               }
             }
-          }
 
-          const primaryTracking = cleanTracking || (trackingCandidates.size > 0 ? Array.from(trackingCandidates)[0] : null);
-
-          // A. Simpan Seluruh Nomor Resi Kurir (AWB) — INI YANG DI-SCAN OLEH OPERATOR SAAT MENCETAK LABEL PENGIRIMAN
-          for (const awb of trackingCandidates) {
-            cancelRows.push({
-              barcode: awb,
-              tracking_no: awb,
-              order_sn: cleanOrderSn,
-              channel_order_sn: cleanChannelSn || null,
-              cancelled_at: safeCreatedTime,
-              cancelled_by: 'Ginee Sync Supabase',
-              reason: cancelReason,
-              shop_name: order.shopName || null,
-              channel: order.channel || null,
-              is_active: true,
-            });
-          }
-
-          // B. Simpan No. Pesanan Toko Marketplace (Shopee, TikTok, Lazada, dll)
-          if (cleanChannelSn && !cleanChannelSn.startsWith('SO') && !trackingCandidates.has(cleanChannelSn)) {
-            cancelRows.push({
-              barcode: cleanChannelSn,
-              tracking_no: primaryTracking || null,
-              order_sn: cleanOrderSn,
-              channel_order_sn: cleanChannelSn,
-              cancelled_at: safeCreatedTime,
-              cancelled_by: 'Ginee Sync Supabase',
-              reason: cancelReason,
-              shop_name: order.shopName || null,
-              channel: order.channel || null,
-              is_active: true,
-            });
-          }
-
-          // C. Simpan ID Pesanan Internal Ginee jika belum memiliki resi dan berbeda dari no toko
-          if (cleanOrderSn && trackingCandidates.size === 0 && cleanOrderSn !== cleanChannelSn) {
-            cancelRows.push({
-              barcode: cleanOrderSn,
-              tracking_no: null,
-              order_sn: cleanOrderSn,
-              channel_order_sn: cleanChannelSn || null,
-              cancelled_at: safeCreatedTime,
-              cancelled_by: 'Ginee Sync Supabase',
-              reason: cancelReason,
-              shop_name: order.shopName || null,
-              channel: order.channel || null,
-              is_active: true,
-            });
+            // HANYA simpan jika memiliki nomor resi kurir (AWB) yang sah
+            for (const awb of trackingCandidates) {
+              cancelRows.push({
+                barcode: awb,
+                tracking_no: awb,
+                order_sn: cleanOrderSn,
+                channel_order_sn: cleanChannelSn || null,
+                cancelled_at: safeCancelTime, // WAKTU PEMBATALAN GINEE
+                cancelled_by: 'Ginee Sync Supabase',
+                reason: cancelReason,
+                shop_name: order.shopName || null,
+                channel: order.channel || null,
+                is_active: true,
+              });
+            }
           }
         } else {
-          // 3. Pesanan AKTIF / SIAP KIRIM / SELESAI: Kumpulkan barcode untuk pembersihan otomatis dari cancelled_orders
-          if (cleanTracking && cleanTracking !== '-') {
+          // 3. Pesanan AKTIF / SIAP KIRIM / SELESAI: Kumpulkan nomor resi untuk pembersihan otomatis dari cancelled_orders
+          if (cleanTracking && cleanTracking !== '-' && !cleanTracking.startsWith('SO') && cleanTracking !== cleanOrderSn) {
             activeBarcodesToClean.push(cleanTracking);
-          }
-          if (cleanChannelSn && !cleanChannelSn.startsWith('SO')) {
-            activeBarcodesToClean.push(cleanChannelSn);
-          }
-          if (cleanOrderSn) {
-            activeBarcodesToClean.push(cleanOrderSn);
           }
           if (Array.isArray(order.allTrackingNos)) {
             for (const t of order.allTrackingNos) {
@@ -927,11 +950,12 @@ export async function syncGineeCancelledOrdersToKalindo(
       return { success: true, totalGinee: 0, newInserted: 0 };
     }
 
-    // 2. Ekstrak data unik berdasarkan tracking_no (Nomor Resi / AWB Kurir)
+    // 2. Ekstrak data unik berdasarkan tracking_no (Nomor Resi / AWB Kurir - BUKAN nomor pesanan)
     const uniqueGineeMap = new Map<string, any>();
     for (const r of gineeCancels) {
       const trk = String(r.tracking_no || '').trim().toUpperCase();
-      if (trk && trk.length >= 4 && !uniqueGineeMap.has(trk)) {
+      // Pastikan hanya nomor resi/AWB kurir valid (bukan ID pesanan SO... atau angka pesanan 18+ digit)
+      if (trk && trk.length >= 6 && !trk.startsWith('SO') && !/^\d{18,}$/.test(trk) && !uniqueGineeMap.has(trk)) {
         uniqueGineeMap.set(trk, r);
       }
     }
