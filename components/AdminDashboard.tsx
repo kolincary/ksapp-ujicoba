@@ -2189,11 +2189,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }
                }
 
-               const { data, error } = await client
+               // Hard 3.5s timeout protection so a slow/down backup DB never hangs admin search
+               const queryPromise = client
                   .from(table)
                   .select('*')
                   .or(orQuery)
                   .limit(100);
+
+               const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
+                  setTimeout(() => resolve({ data: [], error: null }), 3500)
+               );
+
+               const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
                if (error || !data) return [];
                return data.map((item: any) => ({
                   ...item,
@@ -6801,20 +6808,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          }
          if (bulkChangeRoleTarget) updates.scan_type = bulkChangeRoleTarget;
 
-         for (const itemId of selectedScanIds) {
-            const { error } = await supabase
+         const { error } = await supabase
+            .from('leader_scan_2')
+            .update(updates)
+            .in('id', selectedScanIds);
+
+         if (error) {
+            console.error("Error updating leader_scan_2 bulk items:", error);
+         } else {
+            // Mirror to backup non-blocking
+            supabaseNew
                .from('leader_scan_2')
                .update(updates)
-               .eq('id', itemId);
-
-            try {
-               await supabaseNew
-                  .from('leader_scan_2')
-                  .update(updates)
-                  .eq('id', itemId);
-            } catch (e) {}
-
-            if (error) console.error("Error updating leader_scan_2 item " + itemId, error);
+               .in('id', selectedScanIds)
+               .catch(() => {});
          }
 
          setSuccessToast(`Berhasil mengubah ${selectedScanIds.length} data.`);
@@ -6837,20 +6844,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       setIsDeletingRange(true);
       try {
-         for (const itemId of selectedScanIds) {
-            const { error } = await supabase
+         const { error } = await supabase
+            .from('leader_scan_2')
+            .delete()
+            .in('id', selectedScanIds);
+
+         if (error) {
+            console.error("Error deleting leader_scan_2 bulk items:", error);
+         } else {
+            // Mirror to backup non-blocking
+            supabaseNew
                .from('leader_scan_2')
                .delete()
-               .eq('id', itemId);
-
-            try {
-               await supabaseNew
-                  .from('leader_scan_2')
-                  .delete()
-                  .eq('id', itemId);
-            } catch (e) {}
-
-            if (error) console.error("Error deleting leader_scan_2 item " + itemId, error);
+               .in('id', selectedScanIds)
+               .catch(() => {});
          }
          setSuccessToast(`Berhasil menghapus ${selectedScanIds.length} data.`);
          setSelectedScanIds([]);
@@ -8934,28 +8941,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             if (itemsError) throw itemsError;
          }
 
-         // 3. Save to PocketBase admin_batch_imports (and mirror to Firestore)
+         // 3. Save mirror to Firestore admin_batch_imports in background (NON-BLOCKING)
          const upperFilename = batchExcelFilename.toUpperCase();
          const matchedStaff = STAFF_NAMES.find(staff => upperFilename.includes(staff)) || 'LAINNYA';
-         try {
-            await addDoc(collection(db, 'admin_batch_imports'), {
-               excelFilename: batchExcelFilename.trim(),
-               staffName: matchedStaff,
-               jumlah: finalItemsToInsert.length,
-               timestamp: overrideCreatedAt,
-               batchId: newBatchNo,
-               createdAt: new Date().toISOString(),
-               barcodes: finalItemsToInsert.map(i => i.barcode)
-            });
-         } catch (fsErr: any) {
-            console.error("Failed to save to Firestore admin_batch_imports:", fsErr);
-         }
+         addDoc(collection(db, 'admin_batch_imports'), {
+            excelFilename: batchExcelFilename.trim(),
+            staffName: matchedStaff,
+            jumlah: finalItemsToInsert.length,
+            timestamp: overrideCreatedAt,
+            batchId: newBatchNo,
+            createdAt: new Date().toISOString(),
+            barcodes: finalItemsToInsert.map(i => i.barcode)
+         }).catch((fsErr: any) => {
+            console.warn("Mirror to Firestore admin_batch_imports notice (non-blocking):", fsErr);
+         });
 
+         // 4. Immediately close modal, reset inputs, and notify user (0ms UI lag)
          setSuccessToast(`Berhasil menyimpan ${finalItemsToInsert.length} data batch.`);
          setBatchImportText('');
          setIsBatchImportModalOpen(false);
          setBatchExcelFilename('');
-         fetchBatchData();
+         setIsSavingBatch(false);
+
+         // Refresh batch table asynchronously in background
+         fetchBatchData().catch(() => {});
          setRefreshSummaryTrigger(prev => prev + 1);
          setAdminImportsTrigger(prev => prev + 1);
       } catch (err: any) {
@@ -10184,22 +10193,20 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
                      totalImported += finalItemsToInsert.length;
                      sheetsProcessed++;
 
-                     // Save to PocketBase admin_batch_imports (and mirror to Firestore)
+                     // Mirror to Firestore admin_batch_imports in background (NON-BLOCKING)
                      const upperFilename = file.name.toUpperCase();
                      const matchedStaff = STAFF_NAMES.find(staff => upperFilename.includes(staff)) || 'LAINNYA';
-                     try {
-                        await addDoc(collection(db, 'admin_batch_imports'), {
-                           excelFilename: file.name,
-                           staffName: matchedStaff,
-                           jumlah: finalItemsToInsert.length,
-                           timestamp: new Date().toISOString(),
-                           batchId: batchNo,
-                           createdAt: new Date().toISOString(),
-                           barcodes: finalItemsToInsert.map(i => i.barcode)
-                        });
-                     } catch (fsErr: any) {
-                        console.error("Failed to save to Firestore admin_batch_imports:", fsErr);
-                     }
+                     addDoc(collection(db, 'admin_batch_imports'), {
+                        excelFilename: file.name,
+                        staffName: matchedStaff,
+                        jumlah: finalItemsToInsert.length,
+                        timestamp: new Date().toISOString(),
+                        batchId: batchNo,
+                        createdAt: new Date().toISOString(),
+                        barcodes: finalItemsToInsert.map(i => i.barcode)
+                     }).catch((fsErr: any) => {
+                        console.warn("Failed to mirror to Firestore admin_batch_imports (non-blocking):", fsErr);
+                     });
                   }
                }
                filesProcessed++;

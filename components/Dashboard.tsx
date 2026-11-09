@@ -2194,22 +2194,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
                .from('leader_pending_scans')
                .insert([payload]);
 
-            // Dual Backup to supabaseNew
-            try {
-               await supabaseNew
-                  .from('leader_pending_scans')
-                  .insert([payload]);
-            } catch (backupErr) {
-               console.error('Backup insert error (non-blocking):', backupErr);
-            }
+            // Dual Backup to supabaseNew (Fire-and-forget non-blocking)
+            supabaseNew
+               .from('leader_pending_scans')
+               .insert([payload])
+               .catch(backupErr => {
+                  console.warn('Backup insert error (non-blocking):', backupErr);
+               });
 
-            // Triple Backup to Firestore leader_pending_scans collection
-            try {
-               const { doc, setDoc } = await import('firebase/firestore');
-               await setDoc(doc(db, 'leader_pending_scans', uniqueId), payload);
-            } catch (fsErr) {
-               console.warn('Firestore leader pending backup error (non-blocking):', fsErr);
-            }
+            // Triple Backup to Firestore leader_pending_scans collection (Fire-and-forget non-blocking)
+            import('firebase/firestore').then(({ doc, setDoc }) => {
+               setDoc(doc(db, 'leader_pending_scans', uniqueId), payload).catch(fsErr => {
+                  console.warn('Firestore leader pending backup error (non-blocking):', fsErr);
+               });
+            }).catch(() => {});
 
             if (insertErr) {
                playError();
