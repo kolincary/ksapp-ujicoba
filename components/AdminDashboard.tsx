@@ -1540,7 +1540,7 @@ const SidebarItem = React.memo(({ view, icon: Icon, label, requiredPerm, activeV
 // --- MAIN COMPONENT ---
 
 
-const STAFF_NAMES = ['IRDA', 'NOPIYA', 'HELEN', 'NOVI', 'ZAHRA', 'AINUL', 'ISMI', 'APRILIA'];
+const STAFF_NAMES = ['IRDA', 'NOPIYA', 'HELEN', 'NOVI', 'ZAHRA', 'AINUL', 'ISMI', 'APRILIA', 'AIS'];
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    permissions,
@@ -7878,9 +7878,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       setIsLoadingAdminImports(true);
       try {
-         const importsRef = collection(db, 'admin_batch_imports');
-         let q = fsQuery(importsRef);
-         
          const startOfDay = new Date(batchDateFilter + 'T00:00:00');
          let endOfDay = new Date(batchDateFilter + 'T23:59:59.999');
 
@@ -7890,7 +7887,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             endOfDay = new Date(startOfDay.getTime());
             endOfDay.setHours(parseInt(hours, 10), parseInt(minutes, 10), parseInt(seconds || '0', 10), 999);
          }
-         q = fsQuery(q, where('timestamp', '>=', startOfDay.toISOString()), where('timestamp', '<=', endOfDay.toISOString()));
 
          // Also fetch earlier admin_batch_imports for cross-date matching (up to 7 days before, NON-BLOCKING in background)
          const lookbackCacheKey = batchDateFilter;
@@ -7904,27 +7900,81 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             (async () => {
                try {
                   const lookbackStart = new Date(startOfDay.getTime() - 7 * 24 * 60 * 60 * 1000);
-                  const lookbackQ = fsQuery(
-                     collection(db, 'admin_batch_imports'),
-                     where('timestamp', '>=', lookbackStart.toISOString()),
-                     where('timestamp', '<', startOfDay.toISOString())
-                  );
-                  const lookbackSnap = await getDocs(lookbackQ);
                   const eMap = new Map<string, string>();
-                  lookbackSnap.forEach(docSnap => {
-                     const data = docSnap.data();
-                     const tsStr = data.timestamp;
-                     if (tsStr && Array.isArray(data.barcodes)) {
-                        const ts = new Date(tsStr);
-                        const dStr = `${String(ts.getDate()).padStart(2, '0')}/${String(ts.getMonth() + 1).padStart(2, '0')}`;
-                        data.barcodes.forEach((b: string) => {
-                           const cleanB = (b || '').toString().trim().toUpperCase();
-                           if (cleanB && !eMap.has(cleanB)) {
-                              eMap.set(cleanB, dStr);
+                  let fsLookbackSuccess = false;
+
+                  // 1. Try Firestore with fast 2s timeout
+                  try {
+                     const lookbackQ = fsQuery(
+                        collection(db, 'admin_batch_imports'),
+                        where('timestamp', '>=', lookbackStart.toISOString()),
+                        where('timestamp', '<', startOfDay.toISOString())
+                     );
+                     const lookbackSnap = await Promise.race([
+                        getDocs(lookbackQ),
+                        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+                     ]);
+                     lookbackSnap.forEach(docSnap => {
+                        const data = docSnap.data();
+                        const tsStr = data.timestamp;
+                        if (tsStr && Array.isArray(data.barcodes)) {
+                           const ts = new Date(tsStr);
+                           const dStr = `${String(ts.getDate()).padStart(2, '0')}/${String(ts.getMonth() + 1).padStart(2, '0')}`;
+                           data.barcodes.forEach((b: string) => {
+                              const cleanB = (b || '').toString().trim().toUpperCase();
+                              if (cleanB && !eMap.has(cleanB)) {
+                                 eMap.set(cleanB, dStr);
+                              }
+                           });
+                        }
+                     });
+                     if (eMap.size > 0) fsLookbackSuccess = true;
+                  } catch (e) {
+                     // Firestore timeout or billing disabled
+                  }
+
+                  // 2. If Firestore lookback yielded 0, fallback to Supabase VPS
+                  if (!fsLookbackSuccess) {
+                     try {
+                        const { data: pastBatches } = await supabase
+                           .from('batches')
+                           .select('id, created_at')
+                           .gte('created_at', lookbackStart.toISOString())
+                           .lt('created_at', startOfDay.toISOString())
+                           .order('created_at', { ascending: false })
+                           .limit(200);
+
+                        if (pastBatches && pastBatches.length > 0) {
+                           const pastBatchIds = pastBatches.map(b => b.id);
+                           const batchDateMap = new Map<string, string>();
+                           pastBatches.forEach(b => {
+                              const ts = new Date(b.created_at);
+                              const dStr = `${String(ts.getDate()).padStart(2, '0')}/${String(ts.getMonth() + 1).padStart(2, '0')}`;
+                              batchDateMap.set(b.id, dStr);
+                           });
+
+                           for (let i = 0; i < pastBatchIds.length; i += 50) {
+                              const chunkIds = pastBatchIds.slice(i, i + 50);
+                              const { data: pastItems } = await supabase
+                                 .from('batch_items')
+                                 .select('batch_id, barcode')
+                                 .in('batch_id', chunkIds)
+                                 .limit(10000);
+
+                              (pastItems || []).forEach((it: any) => {
+                                 const cleanB = (it.barcode || '').toString().trim().toUpperCase();
+                                 const dStr = batchDateMap.get(it.batch_id) || '';
+                                 if (cleanB && dStr && !eMap.has(cleanB)) {
+                                    eMap.set(cleanB, dStr);
+                                 }
+                              });
                            }
-                        });
+                        }
+                     } catch (sbLookbackErr) {
+                        console.warn("Supabase lookback fetch notice:", sbLookbackErr);
                      }
-                  });
+                  }
+
                   earlierLookbackCacheRef.current.set(lookbackCacheKey, { timestamp: Date.now(), map: eMap });
                   setEarlierAdminResiMap(eMap);
                } catch (pastErr) {
@@ -7933,15 +7983,81 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             })();
          }
 
-         // Fetch today's snapshot directly from Firestore
+         // Fetch today's snapshot (Try Firestore with 2s timeout first)
          let fetched: AdminBatchImport[] = [];
          try {
-            const querySnapshot = await getDocs(q);
+            const importsRef = collection(db, 'admin_batch_imports');
+            const q = fsQuery(importsRef, where('timestamp', '>=', startOfDay.toISOString()), where('timestamp', '<=', endOfDay.toISOString()));
+            const querySnapshot = await Promise.race([
+               getDocs(q),
+               new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+            ]);
             querySnapshot.forEach(docSnap => {
                fetched.push({ id: docSnap.id, ...docSnap.data() } as AdminBatchImport);
             });
          } catch (fsErr) {
-            console.error('Failed to fetch admin_batch_imports from Firestore:', fsErr);
+            console.warn('Firestore admin_batch_imports bypassed or unavailable, falling back to Supabase:', fsErr);
+         }
+
+         // Fallback to Supabase VPS if Firestore is empty or blocked by billing
+         if (fetched.length === 0) {
+            try {
+               const { data: vpsBatches, error: bErr } = await supabase
+                  .from('batches')
+                  .select('id, batch_no, excel_filename, created_at, created_by')
+                  .gte('created_at', startOfDay.toISOString())
+                  .lte('created_at', endOfDay.toISOString())
+                  .order('created_at', { ascending: false });
+
+               if (vpsBatches && vpsBatches.length > 0) {
+                  const batchIds = vpsBatches.map(b => b.id);
+                  let allItems: any[] = [];
+                  let from = 0;
+                  const step = 1000;
+                  while (true) {
+                     const { data: chunk, error: cErr } = await supabase
+                        .from('batch_items')
+                        .select('batch_id, barcode')
+                        .in('batch_id', batchIds)
+                        .range(from, from + step - 1);
+                     if (cErr || !chunk || chunk.length === 0) break;
+                     allItems.push(...chunk);
+                     if (chunk.length < step) break;
+                     from += step;
+                  }
+
+                  const itemsByBatch = new Map<string, string[]>();
+                  allItems.forEach((it: any) => {
+                     if (!itemsByBatch.has(it.batch_id)) itemsByBatch.set(it.batch_id, []);
+                     if (it.barcode) itemsByBatch.get(it.batch_id)!.push(it.barcode);
+                  });
+
+                  fetched = vpsBatches.map(b => {
+                     const barcodes = itemsByBatch.get(b.id) || [];
+                     const upperName = (b.excel_filename || b.batch_no || '').toUpperCase();
+                     let matchedStaff = 'LAINNYA';
+                     for (const s of STAFF_NAMES) {
+                        const reg = new RegExp('(^|[^A-Z0-9])' + s + '([^A-Z0-9]|$)', 'i');
+                        if (reg.test(upperName)) {
+                           matchedStaff = s;
+                           break;
+                        }
+                     }
+                     return {
+                        id: b.id,
+                        excelFilename: b.excel_filename || b.batch_no,
+                        staffName: matchedStaff,
+                        jumlah: barcodes.length,
+                        timestamp: b.created_at,
+                        batchId: b.batch_no,
+                        createdAt: b.created_at,
+                        barcodes: barcodes
+                     };
+                  });
+               }
+            } catch (supaErr) {
+               console.error("Failed to fallback fetch admin imports from Supabase:", supaErr);
+            }
          }
 
          fetched.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -7977,8 +8093,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       try {
          setIsLoadingAdminImports(true);
 
-         // 1. Delete from Firestore
-         await deleteDoc(doc(db, 'admin_batch_imports', item.id));
+         // 1. Delete from Firestore (safely non-blocking)
+         try {
+            await deleteDoc(doc(db, 'admin_batch_imports', item.id));
+         } catch (fsErr) {
+            console.warn("Firestore delete notice (non-fatal):", fsErr);
+         }
 
          // 2. Delete from Supabase
          try {
@@ -7991,6 +8111,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
 
             // B. Delete batch record from batches table
+            if (item.id) {
+               await supabase.from('batch_items').delete().eq('batch_id', item.id);
+               await supabase.from('batches').delete().eq('id', item.id);
+            }
             if (item.batchId) {
                const { data: matchedBatches } = await supabase.from('batches').select('id').eq('batch_no', item.batchId);
                const matchingIds = (matchedBatches || []).map(b => b.id);
@@ -8028,14 +8152,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
          const selectedItems = adminImports.filter(item => selectedRekapIds.includes(item.id));
          const batchNosToDelete = selectedItems.map(item => item.batchId).filter(Boolean);
+         const batchIdsToDelete = selectedItems.map(item => item.id).filter(Boolean);
          const barcodesToDelete = selectedItems.flatMap(item => item.barcodes || []).filter(Boolean);
 
-         // 1. Delete from Firestore
-         const batch = writeBatch(db);
-         selectedRekapIds.forEach(id => {
-            batch.delete(doc(db, 'admin_batch_imports', id));
-         });
-         await batch.commit();
+         // 1. Delete from Firestore (safely non-blocking)
+         try {
+            const batch = writeBatch(db);
+            selectedRekapIds.forEach(id => {
+               batch.delete(doc(db, 'admin_batch_imports', id));
+            });
+            await batch.commit();
+         } catch (fsErr) {
+            console.warn("Firestore batch delete notice (non-fatal):", fsErr);
+         }
 
          // 2. Delete from Supabase
          try {
@@ -8048,6 +8177,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
 
             // B. Delete parent batch records
+            if (batchIdsToDelete.length > 0) {
+               await supabase.from('batch_items').delete().in('batch_id', batchIdsToDelete);
+               await supabase.from('batches').delete().in('id', batchIdsToDelete);
+            }
             if (batchNosToDelete.length > 0) {
                const { data: matchedBatches } = await supabase.from('batches').select('id').in('batch_no', batchNosToDelete);
                const matchingIds = (matchedBatches || []).map(b => b.id);
@@ -8117,22 +8250,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
          }
 
-         // 2. Update/delete barcodes in Firestore admin_batch_imports (adminImports is already filtered by active date)
-         for (const item of adminImports) {
-            if (!item.id || !Array.isArray(item.barcodes)) continue;
-            const hasTargetBarcode = item.barcodes.some(b => selectedSet.has((b || '').toString().trim().toUpperCase()));
-            if (hasTargetBarcode) {
-               const updatedBarcodes = item.barcodes.filter(b => !selectedSet.has((b || '').toString().trim().toUpperCase()));
-               const docRef = doc(db, 'admin_batch_imports', item.id);
-               if (updatedBarcodes.length === 0) {
-                  await deleteDoc(docRef);
-               } else {
-                  await updateDoc(docRef, {
-                     barcodes: updatedBarcodes,
-                     jumlah: updatedBarcodes.length
-                  });
+         // 2. Update/delete barcodes in Firestore admin_batch_imports (safely non-blocking)
+         try {
+            for (const item of adminImports) {
+               if (!item.id || !Array.isArray(item.barcodes)) continue;
+               const hasTargetBarcode = item.barcodes.some(b => selectedSet.has((b || '').toString().trim().toUpperCase()));
+               if (hasTargetBarcode) {
+                  const updatedBarcodes = item.barcodes.filter(b => !selectedSet.has((b || '').toString().trim().toUpperCase()));
+                  const docRef = doc(db, 'admin_batch_imports', item.id);
+                  if (updatedBarcodes.length === 0) {
+                     await deleteDoc(docRef);
+                  } else {
+                     await updateDoc(docRef, {
+                        barcodes: updatedBarcodes,
+                        jumlah: updatedBarcodes.length
+                     });
+                  }
                }
             }
+         } catch (fsSyncErr) {
+            console.warn("Firestore sync during resi clear notice (non-fatal):", fsSyncErr);
          }
 
          setSuccessToast(`Berhasil menghapus ${selectedAdminResi.length} resi admin ${dateLabel} dari Supabase & Firestore.`);
