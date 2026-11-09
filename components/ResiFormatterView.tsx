@@ -297,26 +297,22 @@ export const ResiFormatterView: React.FC<ResiFormatterViewProps> = ({ isDarkMode
             }
          }
 
-         // 3. Search in Firestore admin_batch_imports (Admin Batches)
+         // 3. Search in Supabase VPS admin_batch_imports (Admin Batches)
          if (targetTables.adminImports) {
             try {
-               const { db } = await import('../services/firebaseClient');
-               const { collection, getDocs, query: fsQuery, orderBy, limit: fsLimit } = await import('firebase/firestore');
-
-               let snap;
-               try {
-                  snap = await getDocs(fsQuery(collection(db, 'admin_batch_imports'), orderBy('timestamp', 'desc'), fsLimit(300)));
-               } catch (queryErr) {
-                  snap = await getDocs(collection(db, 'admin_batch_imports'));
-               }
+               const { data: batchRows } = await supabase
+                  .from('admin_batch_imports')
+                  .select('*')
+                  .order('created_at', { ascending: false })
+                  .limit(300);
 
                const todayStr = new Date().toISOString().slice(0, 10);
                const sevenDaysAgo = new Date();
                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                const sevenDaysStr = sevenDaysAgo.toISOString().slice(0, 10);
 
-               for (const docSnap of snap.docs) {
-                  const d = docSnap.data();
+               for (const d of (batchRows || [])) {
+                  const docSnap = { id: d.id };
                   const docDateStr = (d.timestamp || d.createdAt || '').toString().slice(0, 10);
 
                   if (dateFilterType === 'TODAY' && docDateStr && docDateStr !== todayStr) {
@@ -505,79 +501,46 @@ Apakah Anda yakin ingin melanjutkan?`;
          });
       }
 
-      // 2. Process Firestore admin_batch_imports (Group by Document ID for efficient updates)
+      // 2. Process admin_batch_imports in Supabase VPS
       const barcodeMapping = new Map<string, string>();
       itemsToUpdate.forEach(item => {
          barcodeMapping.set(item.originalBarcode, item.formattedBarcode);
       });
 
       try {
-         const { db } = await import('../services/firebaseClient');
-         const { collection, getDocs, doc, getDoc, updateDoc } = await import('firebase/firestore');
-
          if (firestoreItems.length > 0) {
             const byDocId = new Map<string, { [origBc: string]: string }>();
             firestoreItems.forEach(it => {
-               if (!it.firestoreDocId) return;
-               if (!byDocId.has(it.firestoreDocId)) {
-                  byDocId.set(it.firestoreDocId, {});
+               const docId = it.firestoreDocId || it.id.split('_')[0];
+               if (!byDocId.has(docId)) {
+                  byDocId.set(docId, {});
                }
-               byDocId.get(it.firestoreDocId)![it.originalBarcode] = it.formattedBarcode;
+               byDocId.get(docId)![it.originalBarcode] = it.formattedBarcode;
             });
 
             for (const [docId, replaceMap] of byDocId.entries()) {
                try {
-                  const docRef = doc(db, 'admin_batch_imports', docId);
-                  const snap = await getDoc(docRef);
-                  if (snap.exists()) {
-                     const data = snap.data();
-                     if (Array.isArray(data.barcodes)) {
-                        const updated = data.barcodes.map((b: string) => {
-                           const upper = (b || '').trim().toUpperCase();
-                           return replaceMap[upper] || b;
-                        });
-                        await updateDoc(docRef, { barcodes: updated });
-                     }
+                  const { data: batchData } = await supabase.from('admin_batch_imports').select('*').eq('id', docId).maybeSingle();
+                  if (batchData && Array.isArray(batchData.barcodes)) {
+                     const updated = batchData.barcodes.map((b: string) => {
+                        const upper = (b || '').trim().toUpperCase();
+                        return replaceMap[upper] || b;
+                     });
+                     await supabase.from('admin_batch_imports').update({ barcodes: updated }).eq('id', docId);
                   }
-                  firestoreItems.filter(i => i.firestoreDocId === docId).forEach(it => {
+                  firestoreItems.filter(i => (i.firestoreDocId || i.id.split('_')[0]) === docId).forEach(it => {
                      setFoundItems(prev => prev.map(p => (p.id === it.id ? { ...p, status: 'SUCCESS' } : p)));
                      successCount++;
                   });
-                  addLog(`Berhasil update ${Object.keys(replaceMap).length} resi di Firestore batch (${docId})`, 'success');
-               } catch (fsErr: any) {
-                  failedCount += firestoreItems.filter(i => i.firestoreDocId === docId).length;
-                  addLog(`Gagal update Firestore doc ${docId}: ${fsErr.message}`, 'error');
+                  addLog(`Berhasil update ${Object.keys(replaceMap).length} resi di Supabase batch (${docId})`, 'success');
+               } catch (sbErr: any) {
+                  failedCount += firestoreItems.filter(i => (i.firestoreDocId || i.id.split('_')[0]) === docId).length;
+                  addLog(`Gagal update Supabase batch ${docId}: ${sbErr.message}`, 'error');
                }
             }
          }
-
-         // Cross-sync to Firestore admin_batch_imports
-         if (barcodeMapping.size > 0 && firestoreItems.length === 0) {
-            const fsSnap = await getDocs(collection(db, 'admin_batch_imports'));
-            for (const docSnap of fsSnap.docs) {
-               const data = docSnap.data();
-               if (Array.isArray(data.barcodes)) {
-                  let changed = false;
-                  const updatedBarcodes = data.barcodes.map((bc: string) => {
-                     const clean = (bc || '').toString().trim().toUpperCase();
-                     if (barcodeMapping.has(clean)) {
-                        changed = true;
-                        return barcodeMapping.get(clean)!;
-                     }
-                     return bc;
-                  });
-
-                  if (changed) {
-                     await updateDoc(doc(db, 'admin_batch_imports', docSnap.id), {
-                        barcodes: updatedBarcodes
-                     });
-                     addLog(`Tersinkronisasi ke Firestore Admin Batch (${docSnap.data().excelFilename || docSnap.id})`, 'info');
-                  }
-               }
-            }
-         }
-      } catch (fsCrossErr: any) {
-         console.warn('Cross sync to Firestore failed:', fsCrossErr);
+      } catch (crossErr: any) {
+         console.warn('Sync to Supabase batch failed:', crossErr);
       }
 
       setExecProgress({

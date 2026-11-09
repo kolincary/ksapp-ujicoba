@@ -1,5 +1,4 @@
-import { db } from './firebaseClient';
-import { doc, setDoc, onSnapshot, updateDoc, collection, getDocs, deleteDoc, query, where } from 'firebase/firestore';
+import { supabase } from './supabaseClient';
 
 export interface DeviceInfo {
   deviceId: string;
@@ -26,6 +25,7 @@ export interface UserDeviceSession {
   login_status: 'LOGGED_IN' | 'LOGGED_OUT';
   force_logout: boolean;
   ip?: string;
+  last_logout?: number;
 }
 
 // 1. Dapatkan atau buat Device ID unik per browser/perangkat
@@ -109,7 +109,7 @@ export const getDeviceInfo = (): DeviceInfo => {
 
 // 3. Heartbeat & Activity Tracker
 let activeHeartbeatInterval: any = null;
-let activeUnsubSession: (() => void) | null = null;
+let activeSessionChannel: any = null;
 
 export const startDeviceTracking = (
   userEmail: string,
@@ -125,8 +125,7 @@ export const startDeviceTracking = (
 
   const sendHeartbeat = async (status: 'LOGGED_IN' | 'LOGGED_OUT' = 'LOGGED_IN') => {
     try {
-      const sessionRef = doc(db, 'user_device_sessions', sessionDocId);
-      await setDoc(sessionRef, {
+      const payload: Partial<UserDeviceSession> = {
         id: sessionDocId,
         user_email: cleanEmail,
         employee_name: employeeName || userEmail,
@@ -141,7 +140,9 @@ export const startDeviceTracking = (
         login_status: status,
         login_time: status === 'LOGGED_IN' ? (localStorage.getItem(`login_time_${sessionDocId}`) ? Number(localStorage.getItem(`login_time_${sessionDocId}`)) : Date.now()) : Date.now(),
         force_logout: false
-      }, { merge: true });
+      };
+
+      await supabase.from('user_device_sessions').upsert([payload]);
 
       if (status === 'LOGGED_IN' && !localStorage.getItem(`login_time_${sessionDocId}`)) {
         localStorage.setItem(`login_time_${sessionDocId}`, Date.now().toString());
@@ -156,26 +157,33 @@ export const startDeviceTracking = (
 
   // Bersihkan interval & listener sebelumnya jika ada
   if (activeHeartbeatInterval) clearInterval(activeHeartbeatInterval);
-  if (activeUnsubSession) activeUnsubSession();
+  if (activeSessionChannel) {
+    supabase.removeChannel(activeSessionChannel);
+    activeSessionChannel = null;
+  }
 
   // Heartbeat setiap 25 detik
   activeHeartbeatInterval = setInterval(() => {
     sendHeartbeat('LOGGED_IN');
   }, 25000);
 
-  // Listener real-time untuk Force Logout khusus perangkat ini
+  // Listener real-time untuk Force Logout khusus perangkat ini via Supabase
   try {
-    const sessionRef = doc(db, 'user_device_sessions', sessionDocId);
-    activeUnsubSession = onSnapshot(sessionRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data && data.force_logout === true) {
+    activeSessionChannel = supabase
+      .channel(`session_${sessionDocId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'user_device_sessions',
+        filter: `id=eq.${sessionDocId}`
+      }, (payload) => {
+        if (payload.new && (payload.new as any).force_logout === true) {
           if (onForceLogout) {
             onForceLogout();
           }
         }
-      }
-    });
+      })
+      .subscribe();
   } catch (listenerErr) {
     console.warn("Device session listener error:", listenerErr);
   }
@@ -186,9 +194,9 @@ export const stopDeviceTracking = async (userEmail: string) => {
     clearInterval(activeHeartbeatInterval);
     activeHeartbeatInterval = null;
   }
-  if (activeUnsubSession) {
-    activeUnsubSession();
-    activeUnsubSession = null;
+  if (activeSessionChannel) {
+    supabase.removeChannel(activeSessionChannel);
+    activeSessionChannel = null;
   }
 
   if (!userEmail) return;
@@ -196,12 +204,13 @@ export const stopDeviceTracking = async (userEmail: string) => {
     const deviceId = getDeviceId();
     const cleanEmail = userEmail.toLowerCase().trim();
     const sessionDocId = `${cleanEmail.replace(/[^a-z0-9_-]/g, '_')}_${deviceId}`;
-    const sessionRef = doc(db, 'user_device_sessions', sessionDocId);
-    await updateDoc(sessionRef, {
+    
+    await supabase.from('user_device_sessions').update({
       login_status: 'LOGGED_OUT',
       last_active: Date.now(),
       last_logout: Date.now()
-    });
+    }).eq('id', sessionDocId);
+
     localStorage.removeItem(`login_time_${sessionDocId}`);
   } catch (e) {}
 };
@@ -209,12 +218,12 @@ export const stopDeviceTracking = async (userEmail: string) => {
 // 4. Force Logout perangkat tertentu oleh Admin
 export const forceLogoutDeviceSession = async (sessionDocId: string) => {
   try {
-    const sessionRef = doc(db, 'user_device_sessions', sessionDocId);
-    await updateDoc(sessionRef, {
+    await supabase.from('user_device_sessions').update({
       force_logout: true,
       login_status: 'LOGGED_OUT',
       last_active: Date.now()
-    });
+    }).eq('id', sessionDocId);
+
     return true;
   } catch (err) {
     console.error("Error force logout device:", err);
@@ -226,16 +235,12 @@ export const forceLogoutDeviceSession = async (sessionDocId: string) => {
 export const forceLogoutAllUserDevices = async (userEmail: string) => {
   try {
     const cleanEmail = userEmail.toLowerCase().trim();
-    const q = query(collection(db, 'user_device_sessions'), where('user_email', '==', cleanEmail));
-    const snap = await getDocs(q);
-    const updates = snap.docs.map(d =>
-      updateDoc(d.ref, {
-        force_logout: true,
-        login_status: 'LOGGED_OUT',
-        last_active: Date.now()
-      })
-    );
-    await Promise.all(updates);
+    await supabase.from('user_device_sessions').update({
+      force_logout: true,
+      login_status: 'LOGGED_OUT',
+      last_active: Date.now()
+    }).eq('user_email', cleanEmail);
+
     return true;
   } catch (err) {
     console.error("Error force logout all user devices:", err);
@@ -243,11 +248,10 @@ export const forceLogoutAllUserDevices = async (userEmail: string) => {
   }
 };
 
-// 6. Hapus catatan sesi perangkat dari Firestore
+// 6. Hapus catatan sesi perangkat dari Supabase
 export const deleteDeviceSession = async (sessionDocId: string) => {
   try {
-    const sessionRef = doc(db, 'user_device_sessions', sessionDocId);
-    await deleteDoc(sessionRef);
+    await supabase.from('user_device_sessions').delete().eq('id', sessionDocId);
     return true;
   } catch (err) {
     console.error("Error deleting device session:", err);
@@ -260,23 +264,39 @@ export const subscribeDeviceSessions = (
   onUpdate: (sessions: UserDeviceSession[]) => void,
   onError?: (err: any) => void
 ) => {
-  const colRef = collection(db, 'user_device_sessions');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: UserDeviceSession[] = [];
-      snap.forEach((docSnap) => {
-        const data = docSnap.data() as UserDeviceSession;
-        list.push({ ...data, id: docSnap.id });
-      });
-      // Urutkan: Yang baru aktif di atas
-      list.sort((a, b) => (b.last_active || 0) - (a.last_active || 0));
-      onUpdate(list);
-    },
-    (err) => {
-      console.warn("Error subscribing to device sessions:", err);
+  const fetchSessions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_device_sessions')
+        .select('*')
+        .order('last_active', { ascending: false });
+
+      if (error) throw error;
+      if (data) {
+        onUpdate(data as UserDeviceSession[]);
+      }
+    } catch (err) {
+      console.warn("Error fetching device sessions:", err);
       if (onError) onError(err);
     }
-  );
-};
+  };
 
+  // Panggil pertama kali
+  fetchSessions();
+
+  // Polling fallback 12s agar status realtime tetap akurat
+  const interval = setInterval(fetchSessions, 12000);
+
+  // Subscribe perubahan realtime di Supabase
+  const channel = supabase
+    .channel('user_device_sessions_realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'user_device_sessions' }, () => {
+      fetchSessions();
+    })
+    .subscribe();
+
+  return () => {
+    clearInterval(interval);
+    supabase.removeChannel(channel);
+  };
+};

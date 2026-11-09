@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Download, Search, Plus, Trash2, X, RefreshCw, AlertCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { collection, getDocs, writeBatch, doc, deleteDoc, setDoc, query, orderBy } from 'firebase/firestore';
-import { db } from '../services/firebaseClient';
+import { supabase } from '../services/supabaseClient';
 
 interface SkuItem {
-  id: string; // SKU string itself is often good as ID, or we can use auto ID
+  id: string;
   sku: string;
   created_at: number;
 }
@@ -37,16 +36,16 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const q = query(collection(db, 'sku_data'), orderBy('created_at', 'desc'));
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as SkuItem[];
-      setSkuList(data);
-    } catch (err) {
+      const { data, error } = await supabase
+        .from('sku_data')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setSkuList((data || []) as SkuItem[]);
+    } catch (err: any) {
       console.error(err);
-      showError("Gagal mengambil data SKU.");
+      showError("Gagal mengambil data SKU dari Supabase VPS: " + (err.message || ''));
     } finally {
       setIsLoading(false);
     }
@@ -105,32 +104,31 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
     setImportProgress(0);
     let successCount = 0;
     
-    // Firestore batch limit is 500
-    const chunkSize = 400; 
+    const chunkSize = 250; 
     try {
       for (let i = 0; i < skus.length; i += chunkSize) {
         const chunk = skus.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
+        const rows = chunk.map(sku => ({
+          id: sku.toUpperCase(),
+          sku: sku.toUpperCase(),
+          created_at: Date.now()
+        }));
+
+        const { error } = await supabase
+          .from('sku_data')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (error) throw error;
         
-        chunk.forEach(sku => {
-          // Use auto-generated IDs or sku string as ID? Using SKU as ID prevents duplicates naturally.
-          const docRef = doc(collection(db, 'sku_data'), encodeURIComponent(sku.toUpperCase()));
-          batch.set(docRef, {
-            sku: sku.toUpperCase(),
-            created_at: Date.now()
-          }, { merge: true }); // merge true so it doesn't overwrite if it already exists
-        });
-        
-        await batch.commit();
         successCount += chunk.length;
         setImportProgress(Math.round((successCount / skus.length) * 100));
       }
       
-      showSuccess(`Berhasil import ${successCount} SKU`);
+      showSuccess(`Berhasil import ${successCount} SKU ke Supabase VPS`);
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showError("Terjadi kesalahan saat menyimpan ke Firestore.");
+      showError("Terjadi kesalahan saat menyimpan ke Supabase VPS: " + (err.message || ''));
     } finally {
       setIsImporting(false);
       setTimeout(() => setImportProgress(0), 1000);
@@ -152,28 +150,34 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
     const val = manualSku.trim().toUpperCase();
     
     try {
-      await setDoc(doc(db, 'sku_data', encodeURIComponent(val)), {
-        sku: val,
-        created_at: Date.now()
-      }, { merge: true });
+      const { error } = await supabase
+        .from('sku_data')
+        .upsert([{ id: val, sku: val, created_at: Date.now() }], { onConflict: 'id' });
+
+      if (error) throw error;
       showSuccess(`Berhasil menambah SKU: ${val}`);
       setManualSku('');
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showError("Gagal menambah SKU manual.");
+      showError("Gagal menambah SKU manual: " + (err.message || ''));
     }
   };
 
   const handleDelete = async (skuId: string) => {
     if (!confirm("Hapus SKU ini?")) return;
     try {
-      await deleteDoc(doc(db, 'sku_data', skuId));
+      const { error } = await supabase
+        .from('sku_data')
+        .delete()
+        .eq('id', skuId);
+
+      if (error) throw error;
       setSkuList(prev => prev.filter(item => item.id !== skuId));
-      showSuccess("Berhasil menghapus SKU");
-    } catch (err) {
+      showSuccess("Berhasil menghapus SKU dari Supabase VPS");
+    } catch (err: any) {
       console.error(err);
-      showError("Gagal menghapus SKU.");
+      showError("Gagal menghapus SKU: " + (err.message || ''));
     }
   };
 
@@ -202,6 +206,9 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
         <div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
             Data SKU (MSKU)
+            <span className="px-2 py-0.5 text-xs font-bold rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              SUPABASE VPS
+            </span>
           </h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
             Kelola daftar nama barang/MSKU untuk dropdown di Gudang Report
@@ -210,7 +217,7 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
         <div className="flex gap-2">
            <button
               onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors shadow-sm text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors shadow-sm text-sm cursor-pointer"
            >
               <Download size={18} />
               Export Excel
@@ -227,7 +234,7 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
       {isImporting && (
          <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
             <div className="flex justify-between items-center mb-2">
-               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Importing Data...</span>
+               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Importing Data ke Supabase VPS...</span>
                <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{importProgress}%</span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
@@ -249,7 +256,7 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
                   placeholder="Contoh: MSKU-1234"
                />
             </div>
-            <button type="submit" className="p-2.5 bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 text-white rounded-lg flex items-center justify-center">
+            <button type="submit" className="p-2.5 bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 text-white rounded-lg flex items-center justify-center cursor-pointer">
                <Plus size={20} />
             </button>
          </form>
@@ -301,7 +308,7 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                   Total: {filteredList.length} SKU
                </span>
-               <button onClick={fetchData} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-gray-700 rounded-lg transition-colors">
+               <button onClick={fetchData} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-gray-700 rounded-lg transition-colors cursor-pointer">
                   <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                </button>
             </div>
@@ -322,7 +329,7 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
                      <tr>
                         <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
                            <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-blue-500" />
-                           Memuat data...
+                           Memuat data dari Supabase VPS...
                         </td>
                      </tr>
                   ) : currentData.length === 0 ? (
@@ -343,7 +350,7 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
                            <td className="px-6 py-3 text-right">
                               <button 
                                  onClick={() => handleDelete(item.id)}
-                                 className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                 className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer"
                                  title="Hapus"
                               >
                                  <Trash2 size={16} />
@@ -366,14 +373,14 @@ export const AdminSkuData: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
                   <button
                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                      disabled={currentPage === 1}
-                     className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-gray-800"
+                     className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-gray-800 cursor-pointer"
                   >
                      Sebelumnya
                   </button>
                   <button
                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                      disabled={currentPage === totalPages}
-                     className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-gray-800"
+                     className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-gray-800 cursor-pointer"
                   >
                      Selanjutnya
                   </button>

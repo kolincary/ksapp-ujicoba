@@ -84,21 +84,7 @@ export const InjectExpiredResiView: React.FC<InjectExpiredResiViewProps> = () =>
       let completedOps = 0;
 
       try {
-         // Dynamically import Firestore db if available
-         let firestoreDb: any = null;
-         let fsDoc: any = null;
-         let fsSetDoc: any = null;
-         try {
-            const { db } = await import('../services/supabaseClient').then(() => import('../services/firebaseClient'));
-            const { doc, setDoc } = await import('firebase/firestore');
-            firestoreDb = db;
-            fsDoc = doc;
-            fsSetDoc = setDoc;
-         } catch (fsErr) {
-            console.warn("Firestore not available for dual sync:", fsErr);
-         }
-
-         for (let bIndex = 0; bIndex < barcodes.length; bIndex++) {
+for (let bIndex = 0; bIndex < barcodes.length; bIndex++) {
             const barcode = barcodes[bIndex];
             for (const role of selectedRoles) {
                completedOps++;
@@ -166,17 +152,7 @@ export const InjectExpiredResiView: React.FC<InjectExpiredResiViewProps> = () =>
                         .insert([newItem]);
 
                      if (insertErr) throw insertErr;
-
-                     // Dual sync to Firestore if enabled
-                     if (firestoreDb && fsDoc && fsSetDoc) {
-                        try {
-                           await fsSetDoc(fsDoc(firestoreDb, 'scanned_items', uniqueId), newItem);
-                        } catch (fErr) {
-                           console.warn("Firestore inject notice:", fErr);
-                        }
-                     }
-
-                     injectedCount++;
+injectedCount++;
                      newResults.push({
                         barcode,
                         role,

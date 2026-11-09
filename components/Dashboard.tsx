@@ -7,8 +7,6 @@ import { SettingsModal } from './SettingsModal';
 import { RunningTextBanner } from './RunningTextBanner';
 import { supabase, supabaseNew, supabaseLeader } from '../services/supabaseClient';
 import { supabaseBundling } from '../services/supabaseBundlingClient';
-import { collection, getDocs, query, orderBy, where, limit } from 'firebase/firestore';
-import { db } from '../services/firebaseClient';
 import { PinModal } from './PinModal';
 import { getActiveLoginTheme, LoginThemeVariant } from '../services/themeSyncService';
 import { 
@@ -544,12 +542,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
          const fetchSkus = async () => {
             setIsFetchingSkus(true);
             try {
-               const q = query(collection(db, 'sku_data'));
-               const snapshot = await getDocs(q);
-               const skus = snapshot.docs.map(doc => doc.data().sku as string);
-               setSkuOptions(skus);
+               const { data, error } = await supabase
+                  .from('sku_data')
+                  .select('sku')
+                  .order('sku', { ascending: true });
+               if (!error && data) {
+                  const skus = data.map((d: any) => d.sku as string).filter(Boolean);
+                  setSkuOptions(skus);
+               }
             } catch (err) {
-               console.error("Failed to fetch SKUs", err);
+               console.error("Failed to fetch SKUs from Supabase VPS", err);
             } finally {
                setIsFetchingSkus(false);
             }
@@ -2202,13 +2204,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   console.warn('Backup insert error (non-blocking):', backupErr);
                });
 
-            // Triple Backup to Firestore leader_pending_scans collection (Fire-and-forget non-blocking)
-            import('firebase/firestore').then(({ doc, setDoc }) => {
-               setDoc(doc(db, 'leader_pending_scans', uniqueId), payload).catch(fsErr => {
-                  console.warn('Firestore leader pending backup error (non-blocking):', fsErr);
-               });
-            }).catch(() => {});
-
             if (insertErr) {
                playError();
                triggerCameraToast("Gagal menyimpan pending scan leader", 'error');
@@ -2429,26 +2424,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
                    console.warn("Database batch check notice:", pbErr);
                 }
 
-                // Fallback 4: Check Firestore admin_batch_imports secara PARALEL dengan timeout 500ms agar UI tidak freeze
+                // Fallback 4: Check Supabase VPS admin_batch_imports secara PARALEL
                 try {
-                   const fsParallel = Promise.all(
-                      cands.map(cand => {
-                         const qFs = query(
-                            collection(db, 'admin_batch_imports'),
-                            where('barcodes', 'array-contains', cand),
-                            limit(1)
-                         );
-                         return getDocs(qFs).then(snap => (!snap.empty ? cand : null)).catch(() => null);
-                      })
+                   const sbBatchCheck = Promise.all(
+                      cands.map(cand =>
+                         supabase
+                            .from('admin_batch_imports')
+                            .select('id, batch_id')
+                            .contains('barcodes', JSON.stringify([cand]))
+                            .limit(1)
+                            .maybeSingle()
+                            .then(res => (res.data ? cand : null))
+                            .catch(() => null)
+                      )
                    ).then(results => results.find(Boolean) || null);
 
-                   const timeoutRace = new Promise<null>(resolve => setTimeout(() => resolve(null), 100));
-                   const matchedFs = await Promise.race([fsParallel, timeoutRace]);
-                   if (matchedFs) {
-                      return { isValid: true, matchedBarcode: matchedFs };
+                   const timeoutRace = new Promise(resolve => setTimeout(() => resolve(null), 300));
+                   const matchedAdmin = await Promise.race([sbBatchCheck, timeoutRace]);
+                   if (matchedAdmin) {
+                      return { isValid: true, matchedBarcode: matchedAdmin };
                    }
-                } catch (fsErr) {
-                   console.warn("Firestore fallback batch check notice:", fsErr);
+                } catch (batchErr) {
+                   console.warn("Supabase VPS batch check notice:", batchErr);
                 }
 
                 return { isValid: false };

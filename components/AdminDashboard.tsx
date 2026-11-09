@@ -6,8 +6,7 @@ import { gineeSupabase } from '../services/supabaseGineeClient';
 import { syncGineeCancelledOrdersToKalindo } from '../services/gineeSupabaseService';
 import { isGineeSyncEnabled, setGineeSyncEnabled } from '../services/gineeGlobalSyncService';
 import { logDeletionAction } from '../services/deletionLogService';
-import { db } from '../services/firebaseClient';
-import { collection, writeBatch, doc, getDocs, query as fsQuery, where, orderBy, limit as fsLimit, getCountFromServer, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+// Firestore imports removed - Fully migrated to Supabase VPS
 import { ProfileConfigView } from './ProfileConfigView';
 import { FirestoreManagerView } from './FirestoreManagerView';
 import { AdminBatchImportsView } from './AdminBatchImportsView';
@@ -1888,32 +1887,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       fetchNotesFromSupabase();
 
-      // 2. Real-time Firestore Stream for Live Updates Across All Admins
-      const initNotesListener = async () => {
-         try {
-            const { db } = await import('../services/firebaseClient');
-            const { collection, onSnapshot, query, orderBy } = await import('firebase/firestore');
+      // 2. Real-time Supabase VPS Stream for Live Updates Across All Admins
+      const channel = supabase
+         .channel('admin_shift_notes_realtime')
+         .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_shift_notes' }, () => {
+            fetchNotesFromSupabase();
+         })
+         .subscribe();
 
-            const q = query(collection(db, 'admin_shift_notes'), orderBy('created_at', 'desc'));
-            unsubscribe = onSnapshot(q, (snapshot) => {
-               const notes: AdminShiftNote[] = [];
-               snapshot.forEach((docSnap) => {
-                  notes.push({ id: docSnap.id, ...docSnap.data() } as AdminShiftNote);
-               });
-               if (notes.length > 0) {
-                  setAdminNotes(notes);
-               }
-            }, (err) => {
-               console.error('Error listening to admin_shift_notes in Firestore:', err);
-            });
-         } catch (err) {
-            console.error('Failed to init notes listener:', err);
-         }
-      };
-
-      initNotesListener();
       return () => {
-         if (unsubscribe) unsubscribe();
+         supabase.removeChannel(channel);
       };
    }, []);
 
@@ -1954,23 +1937,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             read_by: []
          };
 
-         // Dual Write: 1. Firestore Real-Time
-         const { db } = await import('../services/firebaseClient');
-         const { collection, addDoc } = await import('firebase/firestore');
-         const docRef = await addDoc(collection(db, 'admin_shift_notes'), noteData);
+         const noteId = `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+         const noteRecord = { id: noteId, ...noteData };
 
-         // Dual Write: 2. Supabase Fast Backup
-         try {
-            await supabase.from('admin_shift_notes').insert([{ id: docRef.id, ...noteData }]);
-         } catch (spErr) {
-            console.warn("Supabase backup insert notice:", spErr);
-         }
+         const { error } = await supabase.from('admin_shift_notes').insert([noteRecord]);
+         if (error) throw error;
 
+         setAdminNotes(prev => [noteRecord as AdminShiftNote, ...prev]);
          setNewNoteTitle('');
          setNewNoteContent('');
          setNewNotePriority('SHIFT_HANDOVER');
          setIsCreateNoteModalOpen(false);
-         setSuccessToast("Catatan Admin berhasil disiarkan ke Supabase + Firestore!");
+         setSuccessToast("Catatan Admin berhasil disimpan di Supabase VPS!");
       } catch (err: any) {
          console.error("Gagal membuat catatan admin:", err);
          alert("Gagal menyimpan catatan: " + err.message);
@@ -1999,21 +1977,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          }));
          setDismissedNoteIds(prev => [...prev, noteId]);
 
-         // Dual Update: Firestore
-         const { db } = await import('../services/firebaseClient');
-         const { doc, updateDoc, arrayUnion } = await import('firebase/firestore');
-         const noteRef = doc(db, 'admin_shift_notes', noteId);
-         await updateDoc(noteRef, {
-            read_by: arrayUnion(readEntry)
-         });
-
-         // Dual Update: Supabase
          try {
             const currentNote = adminNotes.find(n => n.id === noteId);
-            if (currentNote) {
-               const updatedReaders = [...(currentNote.read_by || []), readEntry];
-               await supabase.from('admin_shift_notes').update({ read_by: updatedReaders }).eq('id', noteId);
-            }
+            const updatedReaders = [...(currentNote?.read_by || []), readEntry];
+            await supabase.from('admin_shift_notes').update({ read_by: updatedReaders }).eq('id', noteId);
          } catch (spErr) {
             console.warn("Supabase reader update notice:", spErr);
          }
@@ -2027,18 +1994,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          const nextState = !currentActiveState;
          setAdminNotes(prev => prev.map(n => n.id === noteId ? { ...n, is_active: nextState } : n));
 
-         // Dual Update: Firestore
-         const { db } = await import('../services/firebaseClient');
-         const { doc, updateDoc } = await import('firebase/firestore');
-         const noteRef = doc(db, 'admin_shift_notes', noteId);
-         await updateDoc(noteRef, { is_active: nextState });
-
-         // Dual Update: Supabase
-         try {
-            await supabase.from('admin_shift_notes').update({ is_active: nextState }).eq('id', noteId);
-         } catch (spErr) {
-            console.warn("Supabase toggle notice:", spErr);
-         }
+         await supabase.from('admin_shift_notes').update({ is_active: nextState }).eq('id', noteId);
       } catch (err: any) {
          console.error("Gagal mengubah status catatan:", err);
       }
@@ -2060,17 +2016,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       try {
          setAdminNotes(prev => prev.filter(n => n.id !== noteId));
 
-         // Dual Delete: Firestore
-         const { db } = await import('../services/firebaseClient');
-         const { doc, deleteDoc } = await import('firebase/firestore');
-         await deleteDoc(doc(db, 'admin_shift_notes', noteId));
-
-         // Dual Delete: Supabase
-         try {
-            await supabase.from('admin_shift_notes').delete().eq('id', noteId);
-         } catch (spErr) {
-            console.warn("Supabase delete notice:", spErr);
-         }
+         await supabase.from('admin_shift_notes').delete().eq('id', noteId);
       } catch (err: any) {
          console.error("Gagal menghapus catatan:", err);
       }
@@ -2088,8 +2034,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.log(`[SYS] Deep Hunt Barcode (Firestore): ${upper}`);
 
       try {
-         const { db } = await import('../services/firebaseClient');
-         const { collection, getDocs, query, where } = await import('firebase/firestore');
          let allData: any[] = [];
 
          const variations = Array.from(new Set([term, upper, term.toLowerCase()]));
@@ -2172,8 +2116,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       try {
          const { supabase, supabaseNew, supabaseSpecialOld } = await import('../services/supabaseClient');
-         const { db } = await import('../services/firebaseClient');
-         const { collection, getDocs, query, where } = await import('firebase/firestore');
 
          const fetchSb = async (client: any, sourceDb: string, label: string, table: string = 'scanned_items', defaultRole?: string) => {
             try {
@@ -2214,55 +2156,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
          };
 
-         const fetchFs = async () => {
-            try {
-               let fsItems: any[] = [];
-
-               // 1. scanned_items by barcode
-               try {
-                  const q1 = query(collection(db, 'scanned_items'), where('barcode', 'in', variations));
-                  const snap1 = await getDocs(q1);
-                  snap1.forEach(doc => {
-                     fsItems.push({ ...doc.data(), id: doc.id, source_db: 'FIRESTORE', source_label: 'Firestore' });
-                  });
-               } catch (e) {}
-
-               // 2. scanned_items by destination
-               try {
-                  const q2 = query(collection(db, 'scanned_items'), where('destination', 'in', variations));
-                  const snap2 = await getDocs(q2);
-                  snap2.forEach(doc => {
-                     if (!fsItems.find(d => d.id === doc.id)) {
-                        fsItems.push({ ...doc.data(), id: doc.id, source_db: 'FIRESTORE', source_label: 'Firestore' });
-                     }
-                  });
-               } catch (e) {}
-
-               // 3. leader_pending_scans in Firestore
-               try {
-                  const qL = query(collection(db, 'leader_pending_scans'), where('barcode', 'in', variations));
-                  const snapL = await getDocs(qL);
-                  snapL.forEach(doc => {
-                     const d = doc.data() as any;
-                     if (!fsItems.find(item => item.id === doc.id)) {
-                        fsItems.push({
-                           ...d,
-                           id: doc.id,
-                           employee_name: d.leader_name || d.leader_profile || 'LEADER',
-                           role: 'LEADER_PENDING',
-                           source_db: 'FIRESTORE',
-                           source_label: 'Firestore (Pending Leader)'
-                        });
-                     }
-                  });
-               } catch (e) {}
-
-               return fsItems;
-            } catch (e) {
-               return [];
-            }
-         };
-
          const [
             primaryScans,
             archiveScans,
@@ -2270,8 +2163,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             primaryLeaderPending,
             archiveLeaderPending,
             primaryLeader2,
-            archiveLeader2,
-            fsData
+            archiveLeader2
          ] = await Promise.all([
             fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'scanned_items'),
             fetchSb(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'scanned_items'),
@@ -2279,8 +2171,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'leader_pending_scans', 'LEADER_PENDING'),
             fetchSb(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'leader_pending_scans', 'LEADER_PENDING'),
             fetchSb(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'leader_scan_2', 'LEADER_2'),
-            fetchSb(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'leader_scan_2', 'LEADER_2'),
-            fetchFs()
+            fetchSb(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'leader_scan_2', 'LEADER_2')
          ]);
 
          let allMerged = [
@@ -2290,8 +2181,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             ...primaryLeaderPending,
             ...archiveLeaderPending,
             ...primaryLeader2,
-            ...archiveLeader2,
-            ...fsData
+            ...archiveLeader2
          ];
 
          const uniqueMap = new Map();
@@ -2431,16 +2321,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          console.warn("Notice: could not save active_db_source to Supabase:", err);
       }
 
-      // 2. Simpan universal backup ke Firestore app_settings
-      try {
-         const { doc, setDoc } = await import('firebase/firestore');
-         await setDoc(doc(db, 'app_settings', 'active_db_source'), {
-            source: newSource,
-            updated_at: Date.now()
-         }, { merge: true });
-      } catch (fsErr) {
-         console.warn("Notice: could not save active_db_source to Firestore:", fsErr);
-      }
+// Firestore write retired
 
       setSuccessToast(`⚡ Database aktif berhasil diubah ke ${newSource} untuk SEMUA user!`);
 
@@ -2692,21 +2573,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                }
             }
          }
-
-         // 2. Fetch Firestore count & role breakdown
-         const activeFsQuery = fsQuery(
-            collection(db, syncCollectionName.trim() || 'scanned_items'),
-            where('timestamp', '>=', startMs),
-            where('timestamp', '<=', endMs)
-         );
-         const fsSnap = await getDocs(activeFsQuery);
-
          const fsRoles: Record<string, number> = {};
-         fsSnap.docs.forEach(docSnap => {
-            const d = docSnap.data();
-            const r = (d.role || 'MISSING_ROLE').toUpperCase();
-            fsRoles[r] = (fsRoles[r] || 0) + 1;
-         });
+         const fsSnap = { docs: [] };
 
          const report = {
             dateStr: start === end ? start : `${start} s/d ${end}`,
@@ -2996,517 +2864,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
    // 13a. Sinkronisasi Data Firestore ➔ Supabase VPS Sekaligus
    const handleSyncFirestoreToSupabase = async () => {
-      if (isSyncingFs) return;
-      if (!syncStartDate || !syncEndDate) {
-         alert('Silakan pilih Tanggal Mulai dan Tanggal Akhir terlebih dahulu!');
-         return;
-      }
-      setIsSyncingFs(true);
-      setSyncProgressFs(0);
-      setSyncProcessedCountFs(0);
-      setSyncTotalCountFs(0);
-      setSyncBatchCurrentFs(0);
-      setSyncBatchTotalFs(0);
-      setSyncStatusMsgFs('🔍 Mengambil data dari Firestore dan menyinkronkan ke Supabase VPS...');
-
-      try {
-         const targetCollection = syncCollectionName.trim() || 'scanned_items';
-
-         const startTs = new Date(`${syncStartDate}T00:00:00`).getTime();
-         const endTs = new Date(`${syncEndDate}T23:59:59.999`).getTime();
-
-         const qConstraints: any[] = [
-            where('timestamp', '>=', startTs),
-            where('timestamp', '<=', endTs),
-            orderBy('timestamp', 'asc')
-         ];
-
-         const activeQuery = fsQuery(collection(db, targetCollection), ...qConstraints);
-
-         setSyncStatusMsgFs('📥 Mengunduh dokumen dari Firestore...');
-         const snap = await getDocs(activeQuery);
-
-         if (snap.empty) {
-            setSyncStatusMsgFs('⚠️ Tidak ada data Firestore yang ditemukan untuk rentang tanggal ini.');
-            return;
-         }
-
-         let docsToProcess = snap.docs;
-         if (syncRole && syncRole !== 'SEMUA') {
-            docsToProcess = docsToProcess.filter(d => (d.data().role || '').toUpperCase() === syncRole.toUpperCase());
-         }
-
-         const totalDocs = docsToProcess.length;
-         setSyncTotalCountFs(totalDocs);
-
-         if (totalDocs === 0) {
-            setSyncStatusMsgFs(`⚠️ Tidak ada data dengan role '${syncRole}' ditemukan di Firestore untuk rentang ini.`);
-            return;
-         }
-
-         const roleBreakdown: Record<string, number> = {};
-         const BATCH_SIZE = 100;
-         const numBatches = Math.ceil(totalDocs / BATCH_SIZE);
-         setSyncBatchTotalFs(numBatches);
-
-         let grandProcessed = 0;
-
-         for (let b = 0; b < numBatches; b++) {
-            setSyncBatchCurrentFs(b + 1);
-            const chunkDocs = docsToProcess.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-            const batchItems: any[] = [];
-
-            for (const docSnap of chunkDocs) {
-               const normalized = normalizeFirestoreDocToSupabase(docSnap.id, docSnap.data());
-               batchItems.push(normalized);
-
-               const roleName = normalized.role || 'UNKNOWN';
-               roleBreakdown[roleName] = (roleBreakdown[roleName] || 0) + 1;
-            }
-
-            setSyncRoleBreakdownFs({ ...roleBreakdown });
-
-            try {
-               await safeUpsertToSupabaseScannedItems(batchItems);
-            } catch (batchErr: any) {
-               throw new Error(`Gagal menyimpan batch ${b + 1} ke Supabase VPS: ${batchErr.message || 'Unknown error'}`);
-            }
-
-            grandProcessed += chunkDocs.length;
-            setSyncProcessedCountFs(grandProcessed);
-            const pct = Math.round((grandProcessed / totalDocs) * 100);
-            setSyncProgressFs(pct);
-            setSyncStatusMsgFs(`Sedang menyinkronkan: ${grandProcessed} / ${totalDocs} data ke Supabase VPS (${pct}%)...`);
-         }
-
-         setSyncStatusMsgFs(`✅ Sinkronisasi Berhasil! Total ${grandProcessed} data dari Firestore diproses ke Supabase VPS (Duplikat otomatis di-skip).`);
-         setSuccessToast(`Sinkronisasi Firestore ➔ Supabase VPS selesai (${grandProcessed} data)!`);
-      } catch (err: any) {
-         console.error('Sync Firestore to Supabase error:', err);
-         setSyncStatusMsgFs(`❌ Gagal Sinkronisasi: ${err.message || 'Error tidak diketahui'}`);
-      } finally {
-         setIsSyncingFs(false);
-      }
-   };
-
-   // 13b. Sinkronisasi Data Firestore ➔ Supabase VPS Per Hari (Auto-Retry)
-   const handleSyncFirestoreToSupabaseByDayRange = async () => {
-      if (isSyncingFs) return;
-      if (!syncStartDate || !syncEndDate) {
-         alert('Silakan pilih Tanggal Mulai dan Tanggal Akhir!');
-         return;
-      }
-
-      const startDateObj = new Date(`${syncStartDate}T00:00:00`);
-      const endDateObj = new Date(`${syncEndDate}T00:00:00`);
-
-      if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
-         alert('Format tanggal tidak valid!');
-         return;
-      }
-
-      if (startDateObj > endDateObj) {
-         alert('Tanggal Mulai tidak boleh lebih besar dari Tanggal Akhir!');
-         return;
-      }
-
-      setIsSyncingFs(true);
-      setSyncProgressFs(0);
-      setSyncProcessedCountFs(0);
-      setSyncTotalCountFs(0);
-      setSyncBatchCurrentFs(0);
-      setSyncBatchTotalFs(0);
-
-      const targetCollection = syncCollectionName.trim() || 'scanned_items';
-
-      const datesToProcess: { year: number; month: string; day: string; dateStr: string; displayStr: string }[] = [];
-      let curr = new Date(startDateObj);
-      while (curr <= endDateObj) {
-         const y = curr.getFullYear();
-         const m = String(curr.getMonth() + 1).padStart(2, '0');
-         const d = String(curr.getDate()).padStart(2, '0');
-         datesToProcess.push({
-            year: y,
-            month: m,
-            day: d,
-            dateStr: `${y}-${m}-${d}`,
-            displayStr: `${d}/${m}/${y}`
-         });
-         curr.setDate(curr.getDate() + 1);
-      }
-
-      setSyncStatusMsgFs(`🚀 Memulai Sinkronisasi Rentang (${datesToProcess.length} hari: ${datesToProcess[0].displayStr} s/d ${datesToProcess[datesToProcess.length - 1].displayStr}) Firestore ➔ Supabase VPS...`);
-
-      let grandTotalProcessed = 0;
-      const roleBreakdown: Record<string, number> = {};
-
-      for (let i = 0; i < datesToProcess.length; i++) {
-         const dateInfo = datesToProcess[i];
-         let daySuccess = false;
-         let retryAttempt = 0;
-         const maxRetries = 3;
-
-         while (!daySuccess && retryAttempt < maxRetries) {
-            try {
-               retryAttempt++;
-               const statusPrefix = retryAttempt > 1 ? `[Retry #${retryAttempt}] ` : '';
-               setSyncStatusMsgFs(`${statusPrefix}Mengambil data Firestore tanggal ${dateInfo.displayStr} (${i + 1}/${datesToProcess.length} hari)...`);
-
-               const startTs = new Date(`${dateInfo.dateStr}T00:00:00`).getTime();
-               const endTs = new Date(`${dateInfo.dateStr}T23:59:59.999`).getTime();
-
-               const dayQuery = fsQuery(
-                  collection(db, targetCollection),
-                  where('timestamp', '>=', startTs),
-                  where('timestamp', '<=', endTs),
-                  orderBy('timestamp', 'asc')
-               );
-
-               const snap = await getDocs(dayQuery);
-               let docsForDay = snap.docs;
-
-               if (syncRole && syncRole !== 'SEMUA') {
-                  docsForDay = docsForDay.filter(d => (d.data().role || '').toUpperCase() === syncRole.toUpperCase());
-               }
-
-               if (docsForDay.length > 0) {
-                  const BATCH_SIZE = 100;
-                  const numChunks = Math.ceil(docsForDay.length / BATCH_SIZE);
-
-                  for (let c = 0; c < numChunks; c++) {
-                     const chunk = docsForDay.slice(c * BATCH_SIZE, (c + 1) * BATCH_SIZE);
-                     const batchItems = chunk.map(docSnap => {
-                        const normalized = normalizeFirestoreDocToSupabase(docSnap.id, docSnap.data());
-                        const roleName = normalized.role || 'UNKNOWN';
-                        roleBreakdown[roleName] = (roleBreakdown[roleName] || 0) + 1;
-                        return normalized;
-                     });
-
-                     setSyncRoleBreakdownFs({ ...roleBreakdown });
-
-                     try {
-                        await safeUpsertToSupabaseScannedItems(batchItems);
-                     } catch (chunkErr: any) {
-                        throw new Error(`Gagal simpan batch tanggal ${dateInfo.displayStr}: ${chunkErr.message || 'Unknown error'}`);
-                     }
-                  }
-               }
-
-               grandTotalProcessed += docsForDay.length;
-               setSyncProcessedCountFs(grandTotalProcessed);
-               setSyncTotalCountFs(grandTotalProcessed);
-               const overallPct = Math.round(((i + 1) / datesToProcess.length) * 100);
-               setSyncProgressFs(overallPct);
-
-               daySuccess = true;
-               if (docsForDay.length === 0) {
-                  setSyncStatusMsgFs(`ℹ️ Tanggal ${dateInfo.displayStr}: Tidak ada data Firestore ditemukan. Lanjut...`);
-               } else {
-                  setSyncStatusMsgFs(`✅ Tanggal ${dateInfo.displayStr} Selesai! (${docsForDay.length} data). Total: ${grandTotalProcessed} data...`);
-               }
-            } catch (err: any) {
-               const errMsg = err.message || 'Error tidak diketahui';
-               console.warn(`[Sync Day Retry] Gagal proses tanggal ${dateInfo.displayStr}:`, err);
-               if (retryAttempt < maxRetries) {
-                  setSyncStatusMsgFs(`⚠️ Gagal Tanggal ${dateInfo.displayStr} (Percobaan ${retryAttempt}/${maxRetries}): ${errMsg}. Menunggu retry 3 detik...`);
-                  await new Promise(res => setTimeout(res, 3000));
-               } else {
-                  setSyncStatusMsgFs(`❌ Dilewati Tanggal ${dateInfo.displayStr}: ${errMsg}. Melanjutkan ke tanggal berikutnya...`);
-                  daySuccess = true;
-               }
-            }
-         }
-      }
-
-      setSyncStatusMsgFs(`✅ Sinkronisasi Selesai! Total ${grandTotalProcessed} data dari Firestore diproses ke Supabase VPS.`);
-      setSuccessToast(`Sinkronisasi Selesai! Total ${grandTotalProcessed} data terkirim ke Supabase VPS.`);
-      setIsSyncingFs(false);
+      alert("Sinkronisasi dari Firestore dinonaktifkan karena seluruh sistem sudah beralih 100% ke Supabase VPS.");
    };
 
    const handleSyncSupabaseToFirestore = async () => {
-      if (isSyncingFs) return;
-      setIsSyncingFs(true);
-      setSyncProgressFs(0);
-      setSyncProcessedCountFs(0);
-      setSyncTotalCountFs(0);
-      setSyncBatchCurrentFs(0);
-      setSyncBatchTotalFs(0);
-      setSyncStatusMsgFs('Mengambil data dari Supabase dan menyinkronkan ke Firestore...');
-
-      try {
-         const targetCollection = syncCollectionName.trim() || 'scanned_items';
-
-         let startTs: number | null = null;
-         if (syncStartDate) {
-            const parsed = new Date(`${syncStartDate}T00:00:00`).getTime();
-            if (!isNaN(parsed)) startTs = parsed;
-         }
-
-         let endTs: number | null = null;
-         if (syncEndDate) {
-            const parsed = new Date(`${syncEndDate}T23:59:59.999`).getTime();
-            if (!isNaN(parsed)) endTs = parsed;
-         }
-
-         const BATCH_SIZE = 250; // Optimal safe batch size for Firestore to avoid write exhaustion
-         let grandProcessed = 0;
-         let batchCurrent = 0;
-         const roleBreakdown: Record<string, number> = {};
-
-         const rolesToSync = (!syncRole || syncRole === 'SEMUA') ? ALL_SYNC_ROLES : [syncRole];
-
-         for (const r of rolesToSync) {
-            let offset = 0;
-            const pageSize = 1000;
-            let hasMore = true;
-
-            while (hasMore) {
-               let query = supabase
-                  .from('scanned_items')
-                  .select('*')
-                  .eq('role', r)
-                  .order('timestamp', { ascending: true })
-                  .range(offset, offset + pageSize - 1);
-
-               if (startTs !== null) query = query.gte('timestamp', startTs);
-               if (endTs !== null) query = query.lte('timestamp', endTs);
-
-               const { data, error } = await query;
-               if (error) {
-                  throw new Error(`Gagal mengambil data role ${r} dari Supabase: ${error.message}`);
-               }
-
-               if (!data || data.length === 0) {
-                  hasMore = false;
-                  break;
-               }
-
-               // Update role breakdown
-               data.forEach((item: any) => {
-                  const roleName = (item.role || r || 'UNKNOWN').toUpperCase();
-                  roleBreakdown[roleName] = (roleBreakdown[roleName] || 0) + 1;
-               });
-               setSyncRoleBreakdownFs({ ...roleBreakdown });
-
-               // Stream write to Firestore in chunks of BATCH_SIZE (250)
-               const numChunks = Math.ceil(data.length / BATCH_SIZE);
-               for (let c = 0; c < numChunks; c++) {
-                  const chunkItems = data.slice(c * BATCH_SIZE, (c + 1) * BATCH_SIZE);
-                  const batch = writeBatch(db);
-
-                  for (const item of chunkItems) {
-                     const docId = item.id ? String(item.id) : `${item.barcode || 'item'}_${item.role || ''}_${Date.now()}`;
-                     const docRef = doc(db, targetCollection, docId);
-
-                     const cleanItem: Record<string, any> = {};
-                     Object.keys(item).forEach((key) => {
-                        if (item[key] !== undefined) {
-                           cleanItem[key] = item[key];
-                        }
-                     });
-
-                     batch.set(docRef, cleanItem, { merge: true });
-                  }
-
-                  await batch.commit();
-                  grandProcessed += chunkItems.length;
-                  batchCurrent++;
-
-                  setSyncProcessedCountFs(grandProcessed);
-                  setSyncBatchCurrentFs(batchCurrent);
-                  setSyncStatusMsgFs(`Sedang menyinkronkan: ${grandProcessed} data tersimpan di Firestore...`);
-                  
-                  // Small pause to let Firestore drain the write stream
-                  await new Promise(res => setTimeout(res, 40));
-               }
-
-               if (data.length < pageSize) {
-                  hasMore = false;
-               } else {
-                  offset += pageSize;
-               }
-            }
-         }
-
-         setSyncTotalCountFs(grandProcessed);
-         setSyncProgressFs(100);
-         if (grandProcessed === 0) {
-            setSyncStatusMsgFs('⚠️ Tidak ada data Supabase yang ditemukan untuk filter ini.');
-         } else {
-            setSyncStatusMsgFs(`✅ Sinkronisasi Berhasil! Total ${grandProcessed} data dikirim ke collection '${targetCollection}'.`);
-            setSuccessToast(`Sinkronisasi Supabase ➔ Firestore selesai (${grandProcessed} data)!`);
-         }
-      } catch (err: any) {
-         console.error('Error syncing Supabase to Firestore:', err);
-         setSyncStatusMsgFs(`❌ Gagal Sinkronisasi: ${err.message || 'Error tidak diketahui'}`);
-      } finally {
-         setIsSyncingFs(false);
-      }
-   };
-
-   // 13. Day Range Sync with Sequential 250-Doc Commits (Ultra-Stable & Safe)
-   const handleSyncSupabaseToFirestoreByDayRange = async () => {
-      if (isSyncingFs) return;
-      if (!syncStartDate || !syncEndDate) {
-         alert('Silakan pilih Tanggal Mulai dan Tanggal Akhir!');
-         return;
-      }
-
-      const startDateObj = new Date(`${syncStartDate}T00:00:00`);
-      const endDateObj = new Date(`${syncEndDate}T00:00:00`);
-
-      if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
-         alert('Format tanggal tidak valid!');
-         return;
-      }
-
-      if (startDateObj > endDateObj) {
-         alert('Tanggal Mulai tidak boleh lebih besar dari Tanggal Akhir!');
-         return;
-      }
-
-      setIsSyncingFs(true);
-      setSyncProgressFs(0);
-      setSyncProcessedCountFs(0);
-      setSyncTotalCountFs(0);
-      setSyncBatchCurrentFs(0);
-      setSyncBatchTotalFs(0);
-
-      const targetCollection = syncCollectionName.trim() || 'scanned_items';
-
-      // Build array of dates to process
-      const datesToProcess: { year: number; month: string; day: string; dateStr: string; displayStr: string }[] = [];
-      let curr = new Date(startDateObj);
-      while (curr <= endDateObj) {
-         const y = curr.getFullYear();
-         const m = String(curr.getMonth() + 1).padStart(2, '0');
-         const d = String(curr.getDate()).padStart(2, '0');
-         datesToProcess.push({
-            year: y,
-            month: m,
-            day: d,
-            dateStr: `${y}-${m}-${d}`,
-            displayStr: `${d}/${m}/${y}`
-         });
-         curr.setDate(curr.getDate() + 1);
-      }
-
-      setSyncStatusMsgFs(`🚀 Memulai Sinkronisasi Rentang (${datesToProcess.length} hari: ${datesToProcess[0].displayStr} s/d ${datesToProcess[datesToProcess.length - 1].displayStr})...`);
-
-      let grandTotalProcessed = 0;
-      const rolesToSync = (!syncRole || syncRole === 'SEMUA') ? ALL_SYNC_ROLES : [syncRole];
-
-      for (let i = 0; i < datesToProcess.length; i++) {
-         const dateInfo = datesToProcess[i];
-         let daySuccess = false;
-         let retryAttempt = 0;
-         const maxRetries = 3;
-
-         while (!daySuccess && retryAttempt < maxRetries) {
-            try {
-               retryAttempt++;
-               const statusPrefix = retryAttempt > 1 ? `[Retry #${retryAttempt}] ` : '';
-               setSyncStatusMsgFs(`${statusPrefix}Mengambil data tanggal ${dateInfo.displayStr} (${i + 1}/${datesToProcess.length} hari)...`);
-
-               const startTs = new Date(`${dateInfo.dateStr}T00:00:00`).getTime();
-               const endTs = new Date(`${dateInfo.dateStr}T23:59:59.999`).getTime();
-
-               const BATCH_SIZE = 250; // Optimal safe batch size for Firestore
-               let dayProcessed = 0;
-               let dayBatches = 0;
-
-               // Loop through all roles using indexed query
-               for (const r of rolesToSync) {
-                  let offset = 0;
-                  const pageSize = 1000;
-                  let hasMore = true;
-
-                  while (hasMore) {
-                     const { data, error } = await supabase
-                        .from('scanned_items')
-                        .select('*')
-                        .eq('role', r)
-                        .gte('timestamp', startTs)
-                        .lte('timestamp', endTs)
-                        .order('timestamp', { ascending: true })
-                        .range(offset, offset + pageSize - 1);
-
-                     if (error) {
-                        throw new Error(`Gagal mengambil data role ${r} dari Supabase: ${error.message}`);
-                     }
-
-                     if (!data || data.length === 0) {
-                        hasMore = false;
-                        break;
-                     }
-
-                     // Write to Firestore in batches of BATCH_SIZE (250)
-                     const numChunks = Math.ceil(data.length / BATCH_SIZE);
-                     for (let c = 0; c < numChunks; c++) {
-                        const chunkItems = data.slice(c * BATCH_SIZE, (c + 1) * BATCH_SIZE);
-                        const batch = writeBatch(db);
-
-                        for (const item of chunkItems) {
-                           const docId = item.id ? String(item.id) : `${item.barcode || 'item'}_${item.role || ''}_${Date.now()}`;
-                           const docRef = doc(db, targetCollection, docId);
-
-                           const cleanItem: Record<string, any> = {};
-                           Object.keys(item).forEach((key) => {
-                              if (item[key] !== undefined) {
-                                 cleanItem[key] = item[key];
-                              }
-                           });
-
-                           batch.set(docRef, cleanItem, { merge: true });
-                        }
-
-                        await batch.commit();
-                        dayProcessed += chunkItems.length;
-                        dayBatches++;
-
-                        setSyncProcessedCountFs(grandTotalProcessed + dayProcessed);
-                        setSyncStatusMsgFs(`[${dateInfo.displayStr} (${i + 1}/${datesToProcess.length} hari)] Role ${r} - Batch ${dayBatches} selesai (+${dayProcessed} data)`);
-                        
-                        // Small pause to prevent Firestore write queue exhaustion
-                        await new Promise(res => setTimeout(res, 40));
-                     }
-
-                     if (data.length < pageSize) {
-                        hasMore = false;
-                     } else {
-                        offset += pageSize;
-                     }
-                  }
-               }
-
-               grandTotalProcessed += dayProcessed;
-               daySuccess = true;
-               const totalDays = datesToProcess.length;
-               const overallPct = Math.round(((i + 1) / totalDays) * 100);
-               setSyncProgressFs(overallPct);
-
-               if (dayProcessed === 0) {
-                  setSyncStatusMsgFs(`ℹ️ Tanggal ${dateInfo.displayStr}: Tidak ada data Supabase ditemukan. Lanjut...`);
-               } else {
-                  setSyncStatusMsgFs(`✅ Tanggal ${dateInfo.displayStr} Selesai! (${dayProcessed} data). Total: ${grandTotalProcessed} data.`);
-               }
-            } catch (err: any) {
-               console.error(`Error sync date ${dateInfo.displayStr}:`, err);
-               const errMsg = err?.message || 'timeout/network error';
-               if (retryAttempt < maxRetries) {
-                  setSyncStatusMsgFs(`⚠️ Gagal Tanggal ${dateInfo.displayStr} (Percobaan ${retryAttempt}/${maxRetries}): ${errMsg}. Mengulang dalam 2 detik...`);
-                  await new Promise(resolve => setTimeout(resolve, 2000));
-               } else {
-                  setSyncStatusMsgFs(`❌ Dilewati Tanggal ${dateInfo.displayStr}: ${errMsg}. Melanjutkan ke tanggal berikutnya...`);
-                  break;
-               }
-            }
-         }
-      }
-
-      setSyncStatusMsgFs(`✅ Sinkronisasi Selesai! Total ${grandTotalProcessed} data dikirim ke collection '${targetCollection}'.`);
-      setSuccessToast(`Sinkronisasi Selesai! Total ${grandTotalProcessed} data terkirim ke Firestore.`);
-      setIsSyncingFs(false);
+      alert("Sinkronisasi ke Firestore dinonaktifkan karena seluruh sistem sudah beralih 100% ke Supabase VPS.");
    };
 
    const [selectedFailedScanIds, setSelectedFailedScanIds] = useState<string[]>([]);
@@ -3933,19 +3295,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                const s = dbSourceData.setting_value as 'SUPABASE' | 'FIRESTORE';
                setForcedDataSource(s);
                localStorage.setItem('admin_active_db_source', s);
-            } else {
-               // Fallback check Firestore
-               try {
-                  const { doc, getDoc } = await import('firebase/firestore');
-                  const snap = await getDoc(doc(db, 'app_settings', 'active_db_source'));
-                  if (snap.exists() && snap.data()?.source) {
-                     const s = snap.data().source;
-                     if (s === 'SUPABASE' || s === 'FIRESTORE') {
-                        setForcedDataSource(s);
-                        localStorage.setItem('admin_active_db_source', s);
-                     }
-                  }
-               } catch(e) {}
             }
          } catch (err) {
             console.error("Error fetching settings:", err);
@@ -3987,22 +3336,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          })
          .subscribe();
 
-      let unsubFsSettings: (() => void) | null = null;
-      import('firebase/firestore').then(({ doc, onSnapshot }) => {
-         unsubFsSettings = onSnapshot(doc(db, 'app_settings', 'active_db_source'), (snap) => {
-            if (snap.exists()) {
-               const s = snap.data()?.source;
-               if (s === 'SUPABASE' || s === 'FIRESTORE') {
-                  setForcedDataSource(s);
-                  localStorage.setItem('admin_active_db_source', s);
-               }
-            }
-         }, () => {});
-      }).catch(() => {});
-
       return () => {
          supabase.removeChannel(channel);
-         if (unsubFsSettings) unsubFsSettings();
       };
    }, []);
 
@@ -5160,17 +4495,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             endOfDay.setHours(23, 59, 59, 999);
          }
 
-         const importsRef = collection(db, 'admin_batch_imports');
-         const qImports = fsQuery(
-            importsRef,
-            where('timestamp', '>=', startOfDay.toISOString()),
-            where('timestamp', '<=', endOfDay.toISOString())
-         );
-         const querySnapshot = await getDocs(qImports);
-         const adminBatches: any[] = [];
-         querySnapshot.forEach(docSnap => {
-            adminBatches.push({ id: docSnap.id, ...docSnap.data() });
-         });
+         const { data: adminBatchesData } = await supabase
+            .from('admin_batch_imports')
+            .select('*')
+            .gte('created_at', startOfDay.toISOString())
+            .lte('created_at', endOfDay.toISOString());
+         const adminBatches: any[] = (adminBatchesData || []).map((b: any) => ({
+            id: b.id,
+            batchId: b.batch_id,
+            excelFilename: b.excel_filename,
+            staffName: b.staff_name,
+            barcodes: b.barcodes,
+            jumlah: b.jumlah,
+            timestamp: b.timestamp
+         }));
 
          if (!adminBatches || adminBatches.length === 0) return 0;
 
@@ -7573,22 +6911,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             sbScannedCount += (count || 0);
          }
 
-         let fsScannedCount = 0;
-         try {
-            if (barcodes.length > 0) {
-               for (let i = 0; i < barcodes.length; i += 30) {
-                  const chunk = barcodes.slice(i, i + 30);
-                  const fsBatchQuery = fsQuery(
-                     collection(db, 'scanned_items'),
-                     where('barcode', 'in', chunk)
-                  );
-                  const fsBatchSnap = await getDocs(fsBatchQuery);
-                  fsScannedCount += fsBatchSnap.docs.length;
-               }
-            }
-         } catch (e) {}
-
-         const scannedCount = Math.max(sbScannedCount || 0, fsScannedCount);
+         const scannedCount = sbScannedCount || 0;
 
          let staffStr = '-';
          if (batchData?.excel_filename) {
@@ -7710,12 +7033,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             return;
          }
 
-         const fsQueryScanned = fsQuery(
-            collection(db, 'scanned_items'),
-            where('timestamp', '>=', startTs),
-            where('timestamp', '<=', endTs)
-         );
-
+         
          // Format dates for fast indexed lookup in leader_scan_2
          const filterDateStr = batchDateFilter || new Date().toISOString().split('T')[0];
          const [y, m, d] = filterDateStr.split('-');
@@ -18429,11 +17747,7 @@ if (filterPackingShift !== 'ALL') {
                                                                       const { error } = await supabase.from('leader_pending_scans').delete().in('id', selectedScanIds);
                                                                       if (error) throw error;
                                                                       try { await supabaseNew.from('leader_pending_scans').delete().in('id', selectedScanIds); } catch(e) {}
-                                                                      try {
-                                                                         const { doc: fsDoc, deleteDoc: fsDelDoc } = await import('firebase/firestore');
-                                                                         const { db: fsDb } = await import('../services/firebaseClient');
-                                                                         await Promise.all(selectedScanIds.map(sId => fsDelDoc(fsDoc(fsDb, 'leader_pending_scans', sId)).catch(() => {})));
-                                                                      } catch(e) {}
+                                                                      
                                                                       setSuccessToast(`Berhasil menghapus ${selectedScanIds.length} data Pending Leader (LT3).`);
                                                                       setSelectedScanIds([]);
                                                                       fetchPackingData();
@@ -27091,11 +26405,7 @@ LXAD-1234567890`}
 
                            if (activeView === 'LEADER_PENDING_ADMIN') {
                               try { await supabaseNew.from('leader_pending_scans').delete().in('id', selectedScanIds); } catch(e) {}
-                              try {
-                                 const { doc: fsDoc, deleteDoc: fsDelDoc } = await import('firebase/firestore');
-                                 const { db: fsDb } = await import('../services/firebaseClient');
-                                 await Promise.all(selectedScanIds.map(sId => fsDelDoc(fsDoc(fsDb, 'leader_pending_scans', sId)).catch(() => {})));
-                              } catch(e) {}
+                              
                            }
 
                            setSuccessToast(`Berhasil menghapus ${selectedScanIds.length} data ${labelView}.`);

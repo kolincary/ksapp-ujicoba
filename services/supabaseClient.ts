@@ -1,6 +1,4 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { db } from './firebaseClient';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 // Explicit Self-Hosted VPS Supabase credentials (HTTPS Tunnel & Direct IP fallback)
 export const VPS_URL = 'https://light-specialty-cadillac-successful.trycloudflare.com';
@@ -337,22 +335,7 @@ export const setActiveSupabaseCredentials = async (
   // 2. Refresh local client
   refreshSupabaseClients();
 
-  // 3. Broadcast to all users via Firestore Real-Time Config
-  // (Dinonaktifkan di project ujicoba ini agar tidak menimpa settingan Firestore project lain)
-  if (false && broadcastToAllUsers && db) {
-    try {
-      const configRef = doc(db, 'system_config', 'supabase_active');
-      await setDoc(configRef, {
-        url: cleanUrl,
-        key: cleanKey,
-        project_ref: extractProjectRef(cleanUrl),
-        updated_at: Date.now(),
-        updated_by: adminUsername
-      }, { merge: true });
-    } catch (err) {
-      console.warn('Failed to broadcast active Supabase config to Firestore:', err);
-    }
-  }
+  // 3. Optional remote sync (managed via Supabase VPS)
 };
 
 /**

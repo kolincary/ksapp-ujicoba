@@ -1,14 +1,4 @@
-import { db } from './firebaseClient';
-import {
-  doc,
-  setDoc,
-  getDoc,
-  deleteDoc,
-  collection,
-  onSnapshot,
-  query,
-  where
-} from 'firebase/firestore';
+import { supabase } from './supabaseClient';
 import { forceLogoutDeviceSession } from './deviceTracker';
 
 export interface DeviceAccessRule {
@@ -83,7 +73,7 @@ export const checkDeviceAccess = async (
   const cleanEmail = getCleanEmailKey(userEmail);
   const ruleDocId = getDeviceRuleDocId(userEmail, deviceId);
 
-  // Bypass cepat untuk admin & dev agar tidak pernah terhalang Firestore lag
+  // Bypass cepat untuk admin & dev agar tidak pernah terhalang network lag
   const lower = (userEmail || '').toLowerCase().trim();
   if (lower === 'admin' || lower.startsWith('admin') || lower === 'developer@kalindo.com' || lower === 'dev@kalindo.com') {
     return { allowed: true, status: 'NORMAL' };
@@ -91,12 +81,15 @@ export const checkDeviceAccess = async (
 
   try {
     const checkPromise = async (): Promise<DeviceAccessCheckResult> => {
-      // 1. Cek aturan khusus perangkat untuk user ini
-      const ruleRef = doc(db, 'device_access_rules', ruleDocId);
-      const ruleSnap = await getDoc(ruleRef);
+      // 1. Cek aturan khusus perangkat untuk user ini di Supabase
+      const { data: ruleData } = await supabase
+        .from('device_access_rules')
+        .select('*')
+        .eq('id', ruleDocId)
+        .maybeSingle();
 
-      if (ruleSnap.exists()) {
-        const rule = ruleSnap.data() as DeviceAccessRule;
+      if (ruleData) {
+        const rule = ruleData as DeviceAccessRule;
         if (rule.status === 'BLOCKED') {
           return {
             allowed: false,
@@ -111,10 +104,14 @@ export const checkDeviceAccess = async (
       }
 
       // 2. Cek apakah ada aturan global blacklist (_ALL_)
-      const globalRuleRef = doc(db, 'device_access_rules', `_all_${deviceId.trim()}`);
-      const globalSnap = await getDoc(globalRuleRef);
-      if (globalSnap.exists()) {
-        const gRule = globalSnap.data() as DeviceAccessRule;
+      const { data: globalData } = await supabase
+        .from('device_access_rules')
+        .select('*')
+        .eq('id', `_all_${deviceId.trim()}`)
+        .maybeSingle();
+
+      if (globalData) {
+        const gRule = globalData as DeviceAccessRule;
         if (gRule.status === 'BLOCKED') {
           return {
             allowed: false,
@@ -126,11 +123,14 @@ export const checkDeviceAccess = async (
       }
 
       // 3. Cek pengaturan Whitelist untuk user ini
-      const settingRef = doc(db, 'user_security_settings', cleanEmail);
-      const settingSnap = await getDoc(settingRef);
+      const { data: settingData } = await supabase
+        .from('user_security_settings')
+        .select('*')
+        .eq('user_email', cleanEmail)
+        .maybeSingle();
 
-      if (settingSnap.exists()) {
-        const setting = settingSnap.data() as UserSecuritySetting;
+      if (settingData) {
+        const setting = settingData as UserSecuritySetting;
         if (setting.whitelist_enabled) {
           // Jika mode whitelist aktif dan perangkat belum berstatus ALLOWED, maka tolak
           return {
@@ -145,7 +145,7 @@ export const checkDeviceAccess = async (
       return { allowed: true, status: 'NORMAL' };
     };
 
-    // Proteksi Timeout: Maksimal 2.5 detik, jangan gantung login jika Firestore lambat
+    // Proteksi Timeout: Maksimal 2.5 detik, jangan gantung login jika jaringan bermasalah
     const timeoutPromise = new Promise<DeviceAccessCheckResult>((resolve) => {
       setTimeout(() => resolve({ allowed: true, status: 'NORMAL' }), 2500);
     });
@@ -169,7 +169,6 @@ export const allowDevice = async (
 ): Promise<boolean> => {
   const cleanEmail = getCleanEmailKey(userEmail);
   const ruleDocId = getDeviceRuleDocId(userEmail, deviceId);
-  const ruleRef = doc(db, 'device_access_rules', ruleDocId);
 
   const payload: DeviceAccessRule = {
     id: ruleDocId,
@@ -183,7 +182,11 @@ export const allowDevice = async (
     updated_at: Date.now()
   };
 
-  await setDoc(ruleRef, payload, { merge: true });
+  const { error } = await supabase.from('device_access_rules').upsert([payload]);
+  if (error) {
+    console.error("Gagal menyimpan aturan izinkan perangkat di Supabase:", error);
+    throw error;
+  }
   return true;
 };
 
@@ -199,7 +202,6 @@ export const blockDevice = async (
 ): Promise<boolean> => {
   const cleanEmail = getCleanEmailKey(userEmail);
   const ruleDocId = getDeviceRuleDocId(userEmail, deviceId);
-  const ruleRef = doc(db, 'device_access_rules', ruleDocId);
 
   const payload: DeviceAccessRule = {
     id: ruleDocId,
@@ -213,7 +215,11 @@ export const blockDevice = async (
     updated_at: Date.now()
   };
 
-  await setDoc(ruleRef, payload, { merge: true });
+  const { error } = await supabase.from('device_access_rules').upsert([payload]);
+  if (error) {
+    console.error("Gagal memblokir perangkat di Supabase:", error);
+    throw error;
+  }
 
   // Otomatis kick sesi aktif jika ada
   try {
@@ -230,8 +236,11 @@ export const blockDevice = async (
  */
 export const deleteDeviceRule = async (userEmail: string, deviceId: string): Promise<boolean> => {
   const ruleDocId = getDeviceRuleDocId(userEmail, deviceId);
-  const ruleRef = doc(db, 'device_access_rules', ruleDocId);
-  await deleteDoc(ruleRef);
+  const { error } = await supabase.from('device_access_rules').delete().eq('id', ruleDocId);
+  if (error) {
+    console.error("Gagal menghapus aturan perangkat di Supabase:", error);
+    throw error;
+  }
   return true;
 };
 
@@ -244,7 +253,6 @@ export const setUserWhitelistMode = async (
   updatedBy: string = 'admin'
 ): Promise<boolean> => {
   const cleanEmail = getCleanEmailKey(userEmail);
-  const settingRef = doc(db, 'user_security_settings', cleanEmail);
 
   const payload: UserSecuritySetting = {
     user_email: userEmail.toLowerCase().trim(),
@@ -253,7 +261,11 @@ export const setUserWhitelistMode = async (
     updated_by: updatedBy
   };
 
-  await setDoc(settingRef, payload, { merge: true });
+  const { error } = await supabase.from('user_security_settings').upsert([payload]);
+  if (error) {
+    console.error("Gagal menyimpan mode whitelist di Supabase:", error);
+    throw error;
+  }
   return true;
 };
 
@@ -262,13 +274,13 @@ export const setUserWhitelistMode = async (
  */
 export const getUserWhitelistMode = async (userEmail: string): Promise<boolean> => {
   const cleanEmail = getCleanEmailKey(userEmail);
-  const settingRef = doc(db, 'user_security_settings', cleanEmail);
-  const snap = await getDoc(settingRef);
-  if (snap.exists()) {
-    const data = snap.data() as UserSecuritySetting;
-    return !!data.whitelist_enabled;
-  }
-  return false;
+  const { data } = await supabase
+    .from('user_security_settings')
+    .select('whitelist_enabled')
+    .eq('user_email', cleanEmail)
+    .maybeSingle();
+
+  return !!data?.whitelist_enabled;
 };
 
 /**
@@ -278,21 +290,29 @@ export const subscribeAllDeviceRules = (
   onUpdate: (rules: DeviceAccessRule[]) => void,
   onError?: (err: any) => void
 ) => {
-  const colRef = collection(db, 'device_access_rules');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: DeviceAccessRule[] = [];
-      snap.forEach((d) => {
-        list.push({ ...d.data(), id: d.id } as DeviceAccessRule);
-      });
-      onUpdate(list);
-    },
-    (err) => {
-      console.warn('Error subscribing device access rules:', err);
-      if (onError) onError(err);
+  const fetchRules = async () => {
+    try {
+      const { data, error } = await supabase.from('device_access_rules').select('*');
+      if (error) throw error;
+      if (data) onUpdate(data as DeviceAccessRule[]);
+    } catch (e) {
+      console.warn("Gagal fetch device access rules:", e);
+      if (onError) onError(e);
     }
-  );
+  };
+
+  fetchRules();
+
+  const channel = supabase
+    .channel('device_access_rules_realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'device_access_rules' }, () => {
+      fetchRules();
+    })
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 };
 
 /**
@@ -302,24 +322,37 @@ export const subscribeAllUserSecuritySettings = (
   onUpdate: (settings: Record<string, UserSecuritySetting>) => void,
   onError?: (err: any) => void
 ) => {
-  const colRef = collection(db, 'user_security_settings');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const map: Record<string, UserSecuritySetting> = {};
-      snap.forEach((d) => {
-        const item = d.data() as UserSecuritySetting;
-        if (item.user_email) {
-          map[item.user_email.toLowerCase().trim()] = item;
-        }
-      });
-      onUpdate(map);
-    },
-    (err) => {
-      console.warn('Error subscribing user security settings:', err);
-      if (onError) onError(err);
+  const fetchSettings = async () => {
+    try {
+      const { data, error } = await supabase.from('user_security_settings').select('*');
+      if (error) throw error;
+      if (data) {
+        const map: Record<string, UserSecuritySetting> = {};
+        data.forEach((item: any) => {
+          if (item.user_email) {
+            map[item.user_email.toLowerCase().trim()] = item;
+          }
+        });
+        onUpdate(map);
+      }
+    } catch (e) {
+      console.warn("Gagal fetch user security settings:", e);
+      if (onError) onError(e);
     }
-  );
+  };
+
+  fetchSettings();
+
+  const channel = supabase
+    .channel('user_security_settings_realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'user_security_settings' }, () => {
+      fetchSettings();
+    })
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 };
 
 /**
@@ -335,22 +368,26 @@ export const updateDeviceSpecialFeatures = async (
   if (!userEmail || !deviceId) return false;
   const cleanEmail = getCleanEmailKey(userEmail);
   const ruleDocId = getDeviceRuleDocId(userEmail, deviceId);
-  const ruleRef = doc(db, 'device_access_rules', ruleDocId);
 
   const payload: Partial<DeviceAccessRule> = {
     id: ruleDocId,
     user_email: userEmail.toLowerCase().trim(),
     device_id: deviceId.trim(),
-    status: 'ALLOWED', // Otomatis pastikan status ALLOWED saat fitur diberikan
+    status: 'ALLOWED',
     special_features: features,
-    updated_at: Date.now()
+    updated_at: Date.now(),
+    created_by: updatedBy
   };
 
   if (deviceLabel) {
     payload.device_label = deviceLabel;
   }
 
-  await setDoc(ruleRef, payload, { merge: true });
+  const { error } = await supabase.from('device_access_rules').upsert([payload]);
+  if (error) {
+    console.error("Gagal update fitur khusus perangkat di Supabase:", error);
+    throw error;
+  }
   return true;
 };
 
@@ -397,6 +434,5 @@ export const checkDeviceHasFeature = (
   if (!rule || rule.status === 'BLOCKED') return false;
 
   const features = rule.special_features || [];
-  // Izin granted jika fitur spesifik ada atau jika memiliki devmode_auto_unlock
   return features.includes(featureKey) || features.includes('devmode_auto_unlock');
 };

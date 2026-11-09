@@ -12,8 +12,6 @@ import { NameSelectionModal } from './components/NameSelectionModal';
 import { AutoUpdateHandler } from './components/AutoUpdateHandler'; // NEW IMPORT
 import { UserRole, UserPermissions, UserPins, AuthStep, AdminUser, UserManualInputAccess, ProfileConfig } from './types';
 import { supabase } from './services/supabaseClient';
-import { db } from './services/firebaseClient';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { startDeviceTracking, stopDeviceTracking } from './services/deviceTracker';
 import { initGineeGlobalSyncScheduler } from './services/gineeGlobalSyncService';
 import { Ban, LogOut, User, Crown, Search, X, Lock, Target, ChevronRight, ArrowRight } from 'lucide-react';
@@ -206,37 +204,11 @@ const App: React.FC = () => {
 
     fetchSupabaseData();
 
-    // 1b. Realtime cross-device sync for profiles config via Firestore
-    let unsubProfileFs: (() => void) | null = null;
-    if (db) {
-      try {
-        unsubProfileFs = onSnapshot(doc(db, 'system_config', 'profiles_config'), (snap) => {
-          if (snap.exists()) {
-            const fsData = snap.data();
-            if (fsData?.config && Array.isArray(fsData.config) && fsData.config.length > 0) {
-              const existingRoles = fsData.config.map((p: any) => p.role);
-              const missingProfiles = DEFAULT_PROFILE_CONFIG.filter(p => !existingRoles.includes(p.role));
-              const merged = [...fsData.config, ...missingProfiles];
-              setProfileConfig(merged);
-              localStorage.setItem(STORAGE_KEY_PROFILE_CONFIG, JSON.stringify(merged));
-              window.dispatchEvent(new CustomEvent('kalindo_profile_config_updated', { detail: merged }));
-            }
-          }
-        }, (err) => {
-          console.warn("Notice: Firestore profiles_config sync:", err);
-        });
-      } catch (e) {}
-    }
-
     // Sinkronisasi kredensial Supabase Cadangan dari Supabase VPS (app_settings) ke perangkat ini
     syncBackupConfigFromCloud().catch(() => {});
 
     // Jalankan pemeriksaan retensi 7 hari untuk Supabase Cadangan sekali per hari di background
     autoRunBackupRetentionOnceDaily();
-
-    return () => {
-      if (unsubProfileFs) unsubProfileFs();
-    };
   }, []);
 
   // 2. Initialize Theme & Session & Settings

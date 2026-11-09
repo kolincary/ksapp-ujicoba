@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../services/firebaseClient';
-import { collection, getDocs, query, orderBy, limit, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
+import { supabase } from '../services/supabaseClient';
 import { 
   Database, 
   Search, 
@@ -47,7 +46,7 @@ export function FirestoreManagerView() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Helper to generate barcode variations for Firestore 'in' query
+  // Helper to generate barcode variations for query
   const generateBarcodeVariations = (input: string): string[] => {
     const clean = input.trim();
     if (!clean) return [];
@@ -56,7 +55,6 @@ export function FirestoreManagerView() {
     set.add(clean.toUpperCase());
     set.add(clean.toLowerCase());
     
-    // Strip or add 0026
     if (clean.startsWith('0026')) {
       const s = clean.slice(2);
       set.add(s);
@@ -65,7 +63,6 @@ export function FirestoreManagerView() {
       set.add('0026' + clean);
     }
     
-    // Dash variations for prefix-based couriers (LXAD, JNAP, JNEB, JP, SPX)
     if (/^LXAD-?/i.test(clean)) {
       const digits = clean.replace(/^LXAD-?/i, '');
       set.add(`LXAD-${digits}`);
@@ -95,37 +92,33 @@ export function FirestoreManagerView() {
     setLoading(true);
     setErrorMsg('');
     try {
-      let constraints: any[] = [orderBy('timestamp', 'desc')];
-      
+      let query = supabase
+        .from('scanned_items')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
       let actualStartDate = startDate;
       let actualEndDate = isDateRange ? endDate : startDate;
 
       if (actualStartDate) {
         const startMs = new Date(`${actualStartDate}T00:00:00`).getTime();
-        constraints.push(where('timestamp', '>=', startMs));
+        query = query.gte('timestamp', startMs);
       }
       if (actualEndDate) {
         const endMs = new Date(`${actualEndDate}T23:59:59.999`).getTime();
-        constraints.push(where('timestamp', '<=', endMs));
+        query = query.lte('timestamp', endMs);
       }
 
       if (limitCount > 0) {
-        constraints.push(limit(limitCount));
+        query = query.limit(limitCount);
       }
 
-      const q = query(
-        collection(db, 'scanned_items'),
-        ...constraints
-      );
-      const snapshot = await getDocs(q);
-      const data: FirestoreItem[] = [];
-      snapshot.forEach((docSnap) => {
-        data.push({ id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as FirestoreItem);
-      });
-      setItems(data);
+      const { data, error } = await query;
+      if (error) throw error;
+      setItems((data || []) as FirestoreItem[]);
     } catch (err: any) {
-      console.error('Error fetching firestore data:', err);
-      setErrorMsg(err.message || 'Gagal memuat data dari Firestore');
+      console.error('Error fetching data from Supabase VPS:', err);
+      setErrorMsg(err.message || 'Gagal memuat data dari Supabase VPS');
     } finally {
       setLoading(false);
     }
@@ -141,39 +134,42 @@ export function FirestoreManagerView() {
     setLoading(true);
     setErrorMsg('');
     try {
-      let q;
+      let query = supabase
+        .from('scanned_items')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
       if (searchBy === 'id') {
-        q = query(collection(db, 'scanned_items'), where('__name__', '==', searchTerm.trim()));
+        query = query.eq('id', searchTerm.trim());
       } else if (searchBy === 'barcode') {
         const variations = generateBarcodeVariations(searchTerm);
-        q = query(collection(db, 'scanned_items'), where('barcode', 'in', variations));
+        query = query.in('barcode', variations);
       } else {
-        const variations = Array.from(new Set([searchTerm.trim(), searchTerm.trim().toUpperCase(), searchTerm.trim().toLowerCase()]));
-        q = query(collection(db, 'scanned_items'), where(searchBy, 'in', variations));
+        const val = searchTerm.trim();
+        query = query.or(`${searchBy}.eq.${val},${searchBy}.ilike.%${val}%`);
       }
-      
-      const snapshot = await getDocs(q);
-      let data: FirestoreItem[] = [];
-      snapshot.forEach((docSnap) => {
-        data.push({ id: docSnap.id, ...(docSnap.data() as Record<string, any>) } as FirestoreItem);
-      });
-      
-      // Filter locally by date if dates are set
+
       let actualStartDate = startDate;
       let actualEndDate = isDateRange ? endDate : startDate;
 
       if (actualStartDate) {
         const startMs = new Date(`${actualStartDate}T00:00:00`).getTime();
-        data = data.filter(item => item.timestamp >= startMs);
+        query = query.gte('timestamp', startMs);
       }
       if (actualEndDate) {
         const endMs = new Date(`${actualEndDate}T23:59:59.999`).getTime();
-        data = data.filter(item => item.timestamp <= endMs);
+        query = query.lte('timestamp', endMs);
       }
-      
-      setItems(data);
+
+      if (limitCount > 0) {
+        query = query.limit(limitCount);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setItems((data || []) as FirestoreItem[]);
     } catch (err: any) {
-      console.error('Error searching firestore:', err);
+      console.error('Error searching Supabase VPS:', err);
       setErrorMsg(err.message || 'Gagal mencari data');
     } finally {
       setLoading(false);
@@ -187,12 +183,13 @@ export function FirestoreManagerView() {
   }, [limitCount, startDate, endDate, isDateRange]);
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Yakin ingin menghapus data ini dari Firestore secara permanen?')) {
+    if (!window.confirm('Yakin ingin menghapus data ini dari Supabase VPS secara permanen?')) {
       return;
     }
     
     try {
-      await deleteDoc(doc(db, 'scanned_items', id));
+      const { error } = await supabase.from('scanned_items').delete().eq('id', id);
+      if (error) throw error;
       setItems(items.filter(item => item.id !== id));
     } catch (err: any) {
       console.error('Error deleting document:', err);
@@ -210,17 +207,20 @@ export function FirestoreManagerView() {
     
     setIsSaving(true);
     try {
-      const docRef = doc(db, 'scanned_items', editingItem.id);
-      
       const dataToSave = { ...editForm };
       delete dataToSave.id;
       
-      await updateDoc(docRef, dataToSave);
+      const { error } = await supabase
+        .from('scanned_items')
+        .update(dataToSave)
+        .eq('id', editingItem.id);
+
+      if (error) throw error;
       
       setItems(items.map(item => item.id === editingItem.id ? { ...item, ...dataToSave } as FirestoreItem : item));
       setEditingItem(null);
     } catch (err: any) {
-      console.error('Error updating document:', err);
+      console.error('Error updating document in Supabase:', err);
       alert('Gagal mengupdate data: ' + err.message);
     } finally {
       setIsSaving(false);
@@ -263,11 +263,14 @@ export function FirestoreManagerView() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-              <Database className="w-6 h-6 text-orange-500" />
-              Firestore Data Manager
+              <Database className="w-6 h-6 text-emerald-500" />
+              Supabase VPS Data Explorer
+              <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                100% VPS AKTIF
+              </span>
             </h2>
             <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-              Kelola data collection 'scanned_items' secara langsung (Read, Update, Delete)
+              Kelola data tabel <code>scanned_items</code> di server Supabase VPS secara langsung (Read, Update, Delete)
             </p>
           </div>
           
@@ -276,7 +279,7 @@ export function FirestoreManagerView() {
             <select 
               value={limitCount}
               onChange={(e) => setLimitCount(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium"
             >
               <option value={100}>100 Data</option>
               <option value={500}>500 Data</option>
@@ -289,21 +292,21 @@ export function FirestoreManagerView() {
         </div>
 
         {/* Database Info Notice */}
-        <div className="p-3 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300">
-          <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-xl flex items-start gap-2.5 text-xs text-emerald-800 dark:text-emerald-300">
+          <AlertCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
           <div>
-            <span className="font-bold">Info Database Firestore:</span> Menu ini mengelola data collection <code>scanned_items</code> di <strong>Cloud Firestore (Firebase)</strong>. Seluruh data operasional harian utama (Data Packing, Picker, Ekspedisi, Retur, dll.) tersimpan di <strong>Supabase</strong>. Data bulan sebelumnya di Firestore hanya tersedia jika telah disinkronkan melalui menu <strong>Search Data 2</strong> (DevMode Sync).
+            <span className="font-bold">Info Database:</span> Seluruh operasi pembacaan, pencarian, pengeditan, dan penghapusan data ini terhubung langsung ke <strong>Supabase VPS PostgreSQL (103.52.114.209)</strong> tanpa batasan kuota.
           </div>
         </div>
 
         {/* Stats & Totals Bar */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/40 p-4 rounded-xl flex items-center gap-3">
-            <div className="p-3 bg-orange-500 text-white rounded-lg shadow-sm">
+          <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 p-4 rounded-xl flex items-center gap-3">
+            <div className="p-3 bg-emerald-500 text-white rounded-lg shadow-sm">
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wider">Total Hasil Data</div>
+              <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Total Hasil Data</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {filteredItems.length.toLocaleString('id-ID')} <span className="text-xs font-normal text-gray-500">row</span>
               </div>
@@ -334,12 +337,12 @@ export function FirestoreManagerView() {
             </div>
           </div>
 
-          <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 p-4 rounded-xl flex items-center gap-3">
-            <div className="p-3 bg-emerald-500 text-white rounded-lg shadow-sm">
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-4 rounded-xl flex items-center gap-3">
+            <div className="p-3 bg-amber-500 text-white rounded-lg shadow-sm">
               <Filter className="w-5 h-5" />
             </div>
             <div className="overflow-hidden">
-              <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Filter Role</div>
+              <div className="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Filter Role</div>
               <div className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate">
                 {selectedRole !== 'ALL' ? selectedRole : 'Semua Role'}
               </div>
@@ -351,11 +354,11 @@ export function FirestoreManagerView() {
         <div className="bg-gray-50 dark:bg-gray-700/40 p-4 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-3">
           {/* Role Filter */}
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-orange-500" />
+            <Filter className="w-4 h-4 text-emerald-500" />
             <select
               value={selectedRole}
               onChange={(e) => setSelectedRole(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-orange-500 text-sm h-[42px]"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm h-[42px]"
             >
               <option value="ALL">Semua Role</option>
               {roleOptions.map(r => (
@@ -372,7 +375,7 @@ export function FirestoreManagerView() {
               placeholder="Filter Admin / Karyawan..."
               value={adminSearch}
               onChange={(e) => setAdminSearch(e.target.value)}
-              className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-orange-500 text-sm h-[42px] w-48"
+              className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm h-[42px] w-48"
             />
             {adminSearch && (
               <button
@@ -389,7 +392,7 @@ export function FirestoreManagerView() {
 
           <form onSubmit={handleSearch} className="flex flex-wrap gap-2 items-center flex-1">
             <label className="flex items-center gap-1.5 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-               <input type="checkbox" checked={isDateRange} onChange={(e) => setIsDateRange(e.target.checked)} className="rounded border-gray-300 text-orange-500 focus:ring-orange-500" />
+               <input type="checkbox" checked={isDateRange} onChange={(e) => setIsDateRange(e.target.checked)} className="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500" />
                Rentang Tanggal
             </label>
 
@@ -397,7 +400,7 @@ export function FirestoreManagerView() {
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-orange-500 text-sm h-[42px]"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm h-[42px]"
               title={isDateRange ? "Tanggal Mulai" : "Pilih Tanggal"}
             />
             {isDateRange && (
@@ -407,7 +410,7 @@ export function FirestoreManagerView() {
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-orange-500 text-sm h-[42px]"
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm h-[42px]"
                     title="Tanggal Akhir"
                   />
                </>
@@ -416,7 +419,7 @@ export function FirestoreManagerView() {
             <select 
               value={searchBy}
               onChange={(e) => setSearchBy(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-orange-500 text-sm h-[42px]"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm h-[42px]"
             >
               <option value="barcode">Barcode</option>
               <option value="destination">Destination</option>
@@ -433,7 +436,7 @@ export function FirestoreManagerView() {
                 placeholder="Cari data..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-orange-500 text-sm h-[42px] w-full"
+                className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm h-[42px] w-full"
               />
               {searchTerm && (
                  <button 
@@ -449,7 +452,7 @@ export function FirestoreManagerView() {
             
             <button 
               type="submit"
-              className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium text-sm h-[42px] transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm h-[42px] transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <Search className="w-4 h-4" />
               Cari
@@ -464,7 +467,7 @@ export function FirestoreManagerView() {
                 fetchRecentData();
               }}
               title="Refresh / Reset Filter"
-              className="p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors h-[42px] flex items-center justify-center"
+              className="p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors h-[42px] flex items-center justify-center cursor-pointer"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -489,7 +492,7 @@ export function FirestoreManagerView() {
                 <th className="px-4 py-3 font-semibold">Destination</th>
                 <th className="px-4 py-3 font-semibold">Role / Admin</th>
                 <th className="px-4 py-3 font-semibold">Timestamp</th>
-                <th className="px-4 py-3 font-semibold">Doc ID</th>
+                <th className="px-4 py-3 font-semibold">ID</th>
                 <th className="px-4 py-3 font-semibold text-right w-24">Aksi</th>
               </tr>
             </thead>
@@ -497,8 +500,8 @@ export function FirestoreManagerView() {
               {loading ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
-                    Memuat data dari Firestore...
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
+                    Memuat data dari Supabase VPS...
                   </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
@@ -514,7 +517,7 @@ export function FirestoreManagerView() {
                     <td className="px-4 py-3 font-medium">{item.barcode}</td>
                     <td className="px-4 py-3">{item.destination || '-'}</td>
                     <td className="px-4 py-3">
-                      <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 mr-2">
+                      <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 mr-2">
                         {item.role || '-'}
                       </span>
                       <div className="text-xs text-gray-500 dark:text-gray-400 inline-block">{item.admin_name || item.employee_name || ''}</div>
@@ -527,14 +530,14 @@ export function FirestoreManagerView() {
                       <div className="flex items-center justify-end gap-2">
                         <button 
                           onClick={() => openEditModal(item)}
-                          className="p-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                          className="p-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer"
                           title="Edit Document"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => handleDelete(item.id)}
-                          className="p-1.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                          className="p-1.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors cursor-pointer"
                           title="Delete Document"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -558,7 +561,7 @@ export function FirestoreManagerView() {
               <select 
                 value={limitCount}
                 onChange={(e) => setLimitCount(Number(e.target.value))}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 outline-none px-3 py-1.5 focus:ring-2 focus:ring-orange-500"
+                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 outline-none px-3 py-1.5 focus:ring-2 focus:ring-emerald-500"
               >
                 <option value={100}>100 Data</option>
                 <option value={500}>500 Data</option>
@@ -578,11 +581,11 @@ export function FirestoreManagerView() {
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800 z-10">
               <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
                 <Pencil className="w-5 h-5 text-blue-500" />
-                Edit Data Firestore
+                Edit Data Scan
               </h3>
               <button 
                 onClick={() => setEditingItem(null)}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -590,7 +593,7 @@ export function FirestoreManagerView() {
             
             <div className="p-6 overflow-y-auto space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Doc ID (Read Only)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ID (Read Only)</label>
                 <input 
                   type="text" 
                   value={editForm.id || ''} 
@@ -658,7 +661,7 @@ export function FirestoreManagerView() {
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-800/50 mt-auto">
               <button 
                 onClick={() => setEditingItem(null)}
-                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg font-medium transition-colors"
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg font-medium transition-colors cursor-pointer"
                 disabled={isSaving}
               >
                 Batal
@@ -666,7 +669,7 @@ export function FirestoreManagerView() {
               <button 
                 onClick={handleSaveEdit}
                 disabled={isSaving}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {isSaving ? (
                   <RefreshCw className="w-5 h-5 animate-spin" />
