@@ -201,15 +201,15 @@ const playSound = (type: 'success' | 'step' | 'error') => {
 // ─── Authentic Ant Design Empty State SVG Illustration ────────────────────────
 const AntEmptyImage: React.FC = () => (
   <svg
-    className="ant-empty-img-simple"
     width="64"
     height="41"
     viewBox="0 0 64 41"
     xmlns="http://www.w3.org/2000/svg"
+    className="mx-auto"
   >
     <g transform="translate(0 1)" fill="none" fillRule="evenodd">
-      <ellipse className="ant-empty-img-simple-ellipse" cx="32" cy="33" rx="32" ry="7" fill="#F5F5F5" />
-      <g className="ant-empty-img-simple-g" fillRule="nonzero" fill="#D9D9D9">
+      <ellipse cx="32" cy="33" rx="32" ry="7" fill="#EAEFEA" />
+      <g fillRule="nonzero" fill="#D3DCD4">
         <path d="M55 12.76L44.854 1.258C44.367.474 43.656 0 42.907 0H21.093c-.749 0-1.46.474-1.947 1.257L9 12.761V22h46v-9.24z" />
         <path d="M41.613 15.931c0-1.605.994-2.93 2.227-2.931H55v18.137C55 33.26 53.68 35 52.05 35h-40.1C10.32 35 9 33.259 9 31.137V13h11.16c1.233 0 2.227 1.323 2.227 2.928v.022c0 1.605 1.005 2.901 2.237 2.901h14.752c1.232 0 2.237-1.308 2.237-2.913v-.007z" />
       </g>
@@ -2533,39 +2533,43 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
   };
 
   return (
-    <div className="min-h-full bg-[#f0f2f5] dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-sans p-3 sm:p-5 pb-24 sm:pb-6 flex flex-col gap-3 sm:gap-4">
+    <div className="min-h-full bg-[#EBF0EC] dark:bg-gray-900 text-slate-800 dark:text-slate-100 font-sans p-2.5 sm:p-5 pb-24 sm:pb-6 flex flex-col gap-3.5 sm:gap-4">
       {/* ─── Breadcrumbs & Sub-Header (Desktop) ─────────────────────────────── */}
-      <div className="hidden sm:flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-gray-800 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 shadow-2xs">
-        <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-          <span className="hover:text-purple-600 transition-colors">Utilitas</span>
+      <div className="hidden sm:flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl border border-emerald-950/10 dark:border-gray-700 shadow-[0_4px_16px_-4px_rgba(45,90,67,0.06)]">
+        <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-500 dark:text-gray-400">
+          <span className="text-[#2E5844] dark:text-emerald-400 font-bold">Utilitas</span>
           <span>/</span>
-          <span className="font-semibold text-gray-800 dark:text-white">Scan dan Kirim</span>
+          <span className="font-extrabold text-slate-900 dark:text-white">Scan dan Kirim</span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#EBF3ED] text-[#2E5844] dark:bg-emerald-950/60 dark:text-emerald-300 font-mono ml-1">
+            Ginee
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Sinkronkan Pesanan Toko Button + Waktu Sinkron Terakhir */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => handleSyncOrders(true, false)}
               disabled={isSyncing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-gray-50 hover:bg-gray-100 dark:bg-gray-750 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#F4F7F4] hover:bg-[#EAEFEA] dark:bg-gray-700 dark:hover:bg-gray-650 text-[#2E5844] dark:text-emerald-300 border border-emerald-900/10 dark:border-gray-600 transition-all cursor-pointer disabled:opacity-50 shadow-2xs active:scale-[0.98]"
               title={`Sinkronkan pesanan toko langsung dari Ginee API. Sinkron terakhir: ${formatLastSync(lastSyncTime)}`}
             >
-              <RefreshCw size={13} className={`text-blue-600 dark:text-blue-400 ${isSyncing ? 'animate-spin' : ''}`} />
+              <RefreshCw size={13} className={`text-[#2E5844] dark:text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
               <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkronkan'}</span>
               {cachedOrdersCount > 0 && !isSyncing && (
-                <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 font-bold">
-                  {cachedOrdersCount} Pesanan
+                <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-[#1B3629] dark:bg-emerald-900/60 dark:text-emerald-200 font-mono font-bold">
+                  {cachedOrdersCount > 9999 ? `${(cachedOrdersCount / 1000).toFixed(0)}k` : cachedOrdersCount}
                 </span>
               )}
             </button>
             <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shadow-2xs"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#F4F7F4] dark:bg-gray-700 border border-emerald-900/10 dark:border-gray-600 text-slate-600 dark:text-gray-300 shadow-2xs"
               title="Waktu sinkronisasi data pesanan terakhir dari Ginee"
             >
               <span className={`w-2 h-2 rounded-full ${lastSyncTime ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></span>
-              <span>Terakhir: <strong className="text-gray-800 dark:text-gray-100 font-semibold">{formatLastSync(lastSyncTime)}</strong></span>
+              <span className="text-[11px] text-slate-500 dark:text-gray-400">Terakhir:</span>
+              <strong className="text-slate-900 dark:text-gray-100 font-mono font-bold">{formatLastSync(lastSyncTime)}</strong>
             </span>
           </div>
 
@@ -2578,12 +2582,12 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                 setParsedPreviewOrders([]);
                 setIsImportModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#7c3aed] hover:bg-[#6d28d9] text-white shadow-2xs transition-colors cursor-pointer animate-in fade-in zoom-in-95"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#2E5844] hover:bg-[#244E38] text-white shadow-2xs transition-all cursor-pointer active:scale-95"
               title="Tempel data HTML dari Ginee atau upload file CSV pesanan (DevMode)"
             >
               <Download size={13} />
               <span>Import Data Ginee</span>
-              <span className="text-[9px] bg-purple-900/60 text-white px-1 py-0.2 rounded font-mono font-bold">DEV</span>
+              <span className="text-[9px] bg-emerald-950/60 text-emerald-200 px-1 py-0.2 rounded font-mono font-bold">DEV</span>
             </button>
           )}
 
@@ -2591,15 +2595,15 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
           <button
             type="button"
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-1.5 rounded-md border text-xs flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`p-2 rounded-xl border text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
               soundEnabled
-                ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-medium'
-                : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500'
+                ? 'border-emerald-200 dark:border-emerald-700 bg-[#F2F7F4] dark:bg-emerald-950/40 text-[#2E5844] dark:text-emerald-300 font-bold shadow-2xs'
+                : 'border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-700 text-slate-400'
             }`}
             title={soundEnabled ? 'Suara Pemindaian Aktif' : 'Suara Dimatikan'}
           >
-            {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-            <span className="hidden sm:inline">{soundEnabled ? 'Suara Aktif' : 'Mute'}</span>
+            {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            <span className="hidden sm:inline font-bold">{soundEnabled ? 'Suara Aktif' : 'Mute'}</span>
           </button>
 
           {/* Ginee API Key Config Button */}
@@ -2607,23 +2611,23 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
             <button
               type="button"
               onClick={() => setIsConfigModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-white dark:bg-gray-800 border border-purple-300 dark:border-purple-600 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 shadow-2xs transition-colors cursor-pointer animate-in fade-in zoom-in-95 duration-200"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-gray-800 border border-emerald-300 dark:border-emerald-700 text-[#2E5844] dark:text-emerald-300 hover:bg-[#F2F7F4] shadow-2xs transition-all cursor-pointer"
               title="Pengaturan Kunci API & Proxy Ginee (DevMode Aktif)"
             >
-              <Key size={13} className="text-purple-600 dark:text-purple-400" />
+              <Key size={13} className="text-[#2E5844] dark:text-emerald-400" />
               <span>Kunci API Ginee</span>
-              <span className="text-[9px] bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 px-1 py-0.2 rounded font-mono font-bold">DEV</span>
+              <span className="text-[9px] bg-emerald-100 dark:bg-emerald-900/60 text-[#2E5844] dark:text-emerald-300 px-1 py-0.2 rounded font-mono font-bold">DEV</span>
             </button>
           )}
         </div>
       </div>
 
       {/* ─── Breadcrumbs & Sub-Header (Mobile HP) ────────────────────────────── */}
-      <div className="flex sm:hidden flex-col gap-2 bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs">
+      <div className="flex sm:hidden flex-col gap-2.5 bg-white dark:bg-gray-800 p-4 rounded-2xl border border-emerald-950/10 dark:border-gray-700 shadow-[0_4px_16px_-4px_rgba(45,90,67,0.06)]">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="font-bold text-sm text-gray-900 dark:text-white">Scan dan Kirim</span>
-            <span className="text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 px-1.5 py-0.2 rounded-full font-bold">Ginee</span>
+          <div className="flex items-center gap-2">
+            <span className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight">Scan dan Kirim</span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#EBF3ED] text-[#2E5844] dark:bg-emerald-950/60 dark:text-emerald-300 font-mono">Ginee</span>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -2631,14 +2635,14 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
             <button
               type="button"
               onClick={() => setSoundEnabled(!soundEnabled)}
-              className={`p-1.5 rounded-lg border text-xs flex items-center justify-center transition-colors cursor-pointer ${
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
                 soundEnabled
-                  ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300'
-                  : 'border-gray-200 dark:border-gray-700 bg-gray-50 text-gray-400'
+                  ? 'border-emerald-200 dark:border-emerald-700 bg-[#F2F7F4] dark:bg-emerald-950/40 text-[#2E5844] dark:text-emerald-300 shadow-2xs'
+                  : 'border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-slate-400'
               }`}
-              title={soundEnabled ? 'Suara Aktif' : 'Suara Mute'}
+              title={soundEnabled ? 'Suara Aktif' : 'Mute'}
             >
-              {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+              {soundEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
             </button>
 
             {/* Import Data Mobile (Hanya tampil jika devmodenew aktif) */}
@@ -2650,10 +2654,10 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                   setParsedPreviewOrders([]);
                   setIsImportModalOpen(true);
                 }}
-                className="p-1.5 rounded-lg bg-[#7c3aed] text-white hover:bg-[#6d28d9] transition-colors cursor-pointer shadow-2xs flex items-center justify-center animate-in fade-in"
+                className="w-9 h-9 rounded-xl bg-[#2E5844] text-white hover:bg-[#244E38] transition-colors cursor-pointer shadow-2xs flex items-center justify-center"
                 title="Import Data Ginee (DevMode)"
               >
-                <Download size={15} />
+                <Download size={16} />
               </button>
             )}
 
@@ -2662,63 +2666,66 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
               <button
                 type="button"
                 onClick={() => setIsConfigModalOpen(true)}
-                className="p-1.5 rounded-lg bg-purple-50 border border-purple-300 text-purple-700 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-[#F2F7F4] border border-emerald-300 text-[#2E5844] flex items-center justify-center"
                 title="Kunci API"
               >
-                <Key size={15} />
+                <Key size={16} />
               </button>
             )}
           </div>
         </div>
 
-        {/* Row 2 Mobile: Sinkronkan + Terakhir Sync Badge */}
-        <div className="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-gray-700/60">
+        {/* Row 2 Mobile: Sinkronkan Pill + Terakhir Waktu Badge */}
+        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 dark:border-gray-700/60">
           <button
             type="button"
             onClick={() => handleSyncOrders(true, false)}
             disabled={isSyncing}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 active:scale-95 transition-all shadow-2xs"
+            className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-[#F4F7F4] hover:bg-[#EAEFEA] active:scale-[0.98] text-[#2E5844] dark:bg-gray-700 dark:text-emerald-300 border border-emerald-900/10 dark:border-gray-600 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs"
           >
-            <RefreshCw size={12} className={isSyncing ? 'animate-spin text-purple-600' : 'text-purple-600'} />
+            <RefreshCw size={13} className={`text-[#2E5844] dark:text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
             <span>{isSyncing ? 'Sinkron...' : 'Sinkronkan'}</span>
             {cachedOrdersCount > 0 && !isSyncing && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 font-bold">
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-[#1B3629] dark:bg-emerald-900/60 dark:text-emerald-200 font-mono font-bold">
                 {cachedOrdersCount > 9999 ? `${(cachedOrdersCount / 1000).toFixed(0)}k` : cachedOrdersCount}
               </span>
             )}
           </button>
 
           <div
-            className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg text-[10px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shrink-0"
+            className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-[#F4F7F4] dark:bg-gray-700 border border-emerald-900/10 dark:border-gray-600 text-slate-600 dark:text-gray-300 flex items-center justify-center gap-1.5 shadow-2xs truncate"
             title={`Waktu sinkronisasi terakhir: ${formatLastSync(lastSyncTime)}`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${lastSyncTime ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></span>
-            <span>Terakhir: <strong className="text-gray-900 dark:text-white font-semibold">{lastSyncTime ? formatLastSync(lastSyncTime).split(' ')[1] || 'Tersinkron' : 'Belum'}</strong></span>
+            <span className={`w-2 h-2 rounded-full ${lastSyncTime ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></span>
+            <span className="text-[11px] text-slate-500 dark:text-gray-400">Terakhir:</span>
+            <strong className="text-slate-900 dark:text-white font-mono font-bold text-xs truncate">
+              {lastSyncTime ? formatLastSync(lastSyncTime).split(' ')[1] || 'Tersinkron' : 'Belum'}
+            </strong>
           </div>
         </div>
       </div>
 
       {/* Sync Status Banner */}
       {syncStatusText && (
-        <div className="py-2 px-3.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-blue-800 dark:text-blue-300 flex items-center gap-2 animate-in fade-in duration-100">
-          <RefreshCw size={13} className={isSyncing ? 'animate-spin text-blue-600' : 'text-blue-600'} />
-          <span className="font-medium">{syncStatusText}</span>
+        <div className="py-2 px-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2 animate-in fade-in duration-100">
+          <RefreshCw size={13} className={isSyncing ? 'animate-spin text-[#2E5844]' : 'text-[#2E5844]'} />
+          <span className="font-semibold">{syncStatusText}</span>
         </div>
       )}
 
       {/* ─── Top Grid: Scan Input & Pengaturan Scan ──────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
         {/* Left Card: Scan AWB/Nomor Tracking */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3.5 sm:p-5 shadow-2xs flex flex-col justify-between">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-emerald-950/10 dark:border-gray-700 p-4 sm:p-5 shadow-[0_4px_16px_-4px_rgba(45,90,67,0.06)] flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-2.5 sm:mb-3">
-              <h3 className="text-sm sm:text-base font-bold text-gray-800 dark:text-white flex items-center gap-2">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
                 <span>Scan AWB/Nomor Tracking</span>
               </h3>
-              {/* Mobile Quick Counter Pill */}
-              <div className="sm:hidden flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 text-[11px] font-bold text-purple-700 dark:text-purple-300">
-                <span className="text-[#ff4d4f] font-extrabold">{scanCount}</span>
-                <span className="text-[10px] text-gray-500">Scan</span>
+              {/* Scan Counter Pill Peach/Coral */}
+              <div className="px-2.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs font-bold">
+                <span className="text-[#E28864] font-mono font-extrabold">{scanCount}</span>
+                <span className="text-slate-500 dark:text-gray-400 font-normal ml-1">Scan</span>
               </div>
             </div>
 
@@ -2760,7 +2767,7 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                       }
                     }}
                     placeholder="Scan atau ketik nomor resi..."
-                    className="w-full pl-3 sm:pl-3.5 pr-20 py-2 sm:py-2.5 text-xs sm:text-sm bg-white dark:bg-gray-900 border-2 border-purple-600 dark:border-purple-400 rounded-l-xl outline-none text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-purple-200 dark:focus:ring-purple-900/50 transition-all font-mono"
+                    className="w-full pl-3.5 pr-20 py-2.5 text-xs sm:text-sm bg-white dark:bg-gray-900 border-2 border-[#2E5844] dark:border-emerald-500 rounded-l-xl outline-none text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-[#2E5844]/20 transition-all font-mono"
                   />
                   {/* Inline Action saat teks diketik manual */}
                   {scanInput.trim() ? (
@@ -2772,14 +2779,14 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                           if (inputRef.current) inputRef.current.value = '';
                           safeFocusInput();
                         }}
-                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1"
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 p-1"
                         title="Hapus"
                       >
                         <X size={14} />
                       </button>
                       <button
                         type="submit"
-                        className="sm:hidden px-2 py-0.5 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all"
+                        className="sm:hidden px-2 py-0.5 bg-[#2E5844] hover:bg-[#244E38] active:scale-95 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all"
                         title="Kirim nomor resi manual"
                       >
                         <Check size={12} strokeWidth={2.5} />
@@ -2810,7 +2817,7 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                     }
                   }}
                   disabled={isSearching}
-                  className="px-4 sm:px-6 py-2 sm:py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 active:scale-95 text-white text-xs sm:text-sm font-bold rounded-r-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 shadow-md group"
+                  className="px-4 sm:px-6 py-2.5 bg-gradient-to-r from-[#2E5844] to-[#3B6652] hover:from-[#244E38] hover:to-[#2E5844] active:scale-95 text-white text-xs sm:text-sm font-bold rounded-r-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 shadow-sm group"
                   title="Kirim / Scan"
                 >
                   {isSearching ? (
@@ -2819,13 +2826,13 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                     <>
                       {/* Tampilan Desktop: Kirim */}
                       <div className="hidden sm:flex items-center gap-1.5">
-                        <Send size={16} className="group-hover:translate-x-0.5 transition-transform text-white" />
+                        <Send size={15} className="group-hover:translate-x-0.5 transition-transform text-white" />
                         <span className="font-bold">Kirim</span>
                       </div>
 
                       {/* Tampilan Mobile: Kamera */}
                       <div className="flex sm:hidden items-center gap-1.5">
-                        <Camera size={18} className="group-hover:scale-110 transition-transform text-white animate-pulse" />
+                        <Camera size={16} className="group-hover:scale-110 transition-transform text-white animate-pulse" />
                         <span className="font-bold text-xs">Kamera</span>
                       </div>
                     </>
@@ -2834,18 +2841,44 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
               </form>
 
               {/* Scan Counter Box (Desktop) */}
-              <div className="hidden sm:flex w-28 py-0 bg-[#f7f8fa] dark:bg-gray-900/60 rounded-xl border border-gray-200 dark:border-gray-700 flex-col items-center justify-center shrink-0 h-11">
-                <span className="text-xl font-extrabold text-[#ff4d4f] leading-none mb-0.5">
+              <div className="hidden sm:flex px-3 py-1 bg-[#F4F7F4] dark:bg-gray-700/60 rounded-xl border border-emerald-900/10 dark:border-gray-700 flex-col items-center justify-center shrink-0 min-w-[70px]">
+                <span className="text-lg font-mono font-extrabold text-[#E28864] leading-tight">
                   {scanCount}
                 </span>
-                <span className="text-[10px] font-medium text-gray-400">Scan</span>
+                <span className="text-[10px] font-medium text-slate-500 dark:text-gray-400">Scan</span>
               </div>
+            </div>
+
+            {/* Quick Test Chips */}
+            <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-100 dark:border-gray-700 flex-wrap">
+              <span className="text-[10px] text-slate-400 font-medium">Uji Resi:</span>
+              <button
+                type="button"
+                onClick={() => handleProcessScan(undefined, '006919011070')}
+                className="px-2 py-0.5 rounded-md bg-[#F2F6F3] dark:bg-gray-700 hover:bg-[#E2EDE5] text-[#244E38] dark:text-emerald-300 text-[10px] font-mono font-bold cursor-pointer transition-colors"
+              >
+                006919011070
+              </button>
+              <button
+                type="button"
+                onClick={() => handleProcessScan(undefined, '006919576083')}
+                className="px-2 py-0.5 rounded-md bg-[#F2F6F3] dark:bg-gray-700 hover:bg-[#E2EDE5] text-[#244E38] dark:text-emerald-300 text-[10px] font-mono font-bold cursor-pointer transition-colors"
+              >
+                006919576083
+              </button>
+              <button
+                type="button"
+                onClick={() => handleProcessScan(undefined, 'CANCELLED-001')}
+                className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-700 dark:text-rose-300 text-[10px] font-mono font-bold cursor-pointer transition-colors"
+              >
+                Test Batal
+              </button>
             </div>
           </div>
 
           {/* Pending 2nd scan indicator */}
           {pendingScanAwb && (
-            <div className="mt-3 py-1.5 px-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md text-[11px] text-amber-800 dark:text-amber-200 flex items-center justify-between">
+            <div className="mt-3 py-1.5 px-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-medium">
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
                 <span>
@@ -2855,7 +2888,7 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
               <button
                 type="button"
                 onClick={() => setPendingScanAwb(null)}
-                className="text-amber-600 hover:text-amber-800 dark:hover:text-amber-100 text-[10px] font-semibold underline cursor-pointer"
+                className="text-amber-700 hover:text-amber-900 dark:text-amber-300 underline font-bold cursor-pointer text-xs"
               >
                 Batal
               </button>
@@ -2864,7 +2897,7 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
 
           {/* Sync Feedback Toast / Banner */}
           {syncFeedback && (
-            <div className="mt-3 py-2 px-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 rounded-md text-[11px] text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-in fade-in">
+            <div className="mt-3 py-2 px-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-[#2E5844] dark:text-emerald-300 flex items-center gap-2 animate-in fade-in">
               <GineeScanLogisticsIcon size={16} />
               <span className="font-semibold">{syncFeedback}</span>
             </div>
@@ -2872,15 +2905,15 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
         </div>
 
         {/* Right Card: Pengaturan Scan */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
-          <h3 className="text-sm sm:text-base font-bold text-gray-800 dark:text-white mb-3">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-emerald-950/10 dark:border-gray-700 p-4 sm:p-5 shadow-[0_4px_16px_-4px_rgba(45,90,67,0.06)] flex flex-col justify-between">
+          <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white tracking-tight mb-3">
             Pengaturan Scan
           </h3>
 
           <div className="flex flex-col gap-3.5">
             {/* Setting 1: Toggle Switch */}
-            <div className="flex items-center justify-between gap-4 py-1 border-b border-gray-100 dark:border-gray-700/60">
-              <span className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 font-medium">
+            <div className="flex items-center justify-between gap-4 py-1.5 border-b border-slate-100 dark:border-gray-700/60">
+              <span className="text-xs sm:text-sm text-slate-700 dark:text-gray-300 font-medium leading-tight">
                 Secara otomatis pindah ke Menunggu Dipickup setelah pemindaian
               </span>
               <button
@@ -2888,55 +2921,55 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                 role="switch"
                 aria-checked={autoMoveToPickup}
                 onClick={() => setAutoMoveToPickup(!autoMoveToPickup)}
-                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  autoMoveToPickup ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  autoMoveToPickup ? 'bg-[#2E5844]' : 'bg-slate-300 dark:bg-gray-600'
                 }`}
               >
                 <span
-                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                    autoMoveToPickup ? 'translate-x-4' : 'translate-x-0'
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    autoMoveToPickup ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
             </div>
 
             {/* Setting 2: Radio Group */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-0.5">
-              <div className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 dark:text-gray-300 font-medium">
+            <div className="pt-1">
+              <div className="flex items-center gap-1.5 text-xs sm:text-sm text-slate-700 dark:text-gray-300 font-medium mb-2.5">
                 <span>Berapa kali hasil pemindaian telah berlaku</span>
                 <span
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-help"
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-help"
                   title="Pilih 1 kali (Sekali) untuk langsung memvalidasi paket, atau 2 kali (Dua kali) untuk verifikasi ganda barcode."
                 >
                   <HelpCircle size={14} />
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 text-xs sm:text-sm">
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <div className="flex items-center gap-5 text-xs sm:text-sm">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="radio"
                     name="scanCountRule"
                     value="1"
                     checked={scanVerificationCount === '1'}
                     onChange={() => setScanVerificationCount('1')}
-                    className="accent-purple-600 w-4 h-4 cursor-pointer"
+                    className="accent-[#2E5844] w-4 h-4 cursor-pointer"
                   />
-                  <span className={scanVerificationCount === '1' ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}>
+                  <span className={scanVerificationCount === '1' ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-gray-400'}>
                     Sekali
                   </span>
                 </label>
 
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="radio"
                     name="scanCountRule"
                     value="2"
                     checked={scanVerificationCount === '2'}
                     onChange={() => setScanVerificationCount('2')}
-                    className="accent-purple-600 w-4 h-4 cursor-pointer"
+                    className="accent-[#2E5844] w-4 h-4 cursor-pointer"
                   />
-                  <span className={scanVerificationCount === '2' ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}>
+                  <span className={scanVerificationCount === '2' ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-gray-400'}>
                     Dua kali
                   </span>
                 </label>
@@ -2949,90 +2982,88 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
       {/* ─── Bottom Grid: Hasil Pemindaian & Riwayat Scan ────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         {/* Left Card: Hasil Pemindaian */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-2xs overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-emerald-950/10 dark:border-gray-700 shadow-[0_4px_16px_-4px_rgba(45,90,67,0.06)] overflow-hidden">
           {/* Card Header Bar */}
-          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2 bg-gray-50/50 dark:bg-gray-800/80">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2 bg-[#FBFDFB] dark:bg-gray-800/90">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-gray-900 dark:text-white">Hasil Pemindaian</span>
+              <span className="text-sm font-extrabold text-slate-900 dark:text-white tracking-tight">Hasil Pemindaian</span>
               {pendingScanAwb && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
                   Menunggu Scan ke-2
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-300">
+            <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-gray-300">
               <div>
-                Nomor Resi: <strong className="font-mono text-gray-900 dark:text-white">{scannedResiDisplay}</strong>
+                Nomor Resi: <strong className="font-mono text-slate-900 dark:text-white font-bold">{scannedResiDisplay}</strong>
               </div>
+              <span className="text-slate-300 dark:text-gray-600">|</span>
               <div>
-                Logistik: <strong className="text-gray-900 dark:text-white">{scannedLogisticsDisplay}</strong>
+                Logistik: <strong className="text-slate-900 dark:text-white font-bold">{scannedLogisticsDisplay}</strong>
               </div>
             </div>
           </div>
 
           {/* Mobile Card View (Hasil Pemindaian) */}
-          <div className="sm:hidden p-3 min-h-[200px] flex flex-col gap-2.5">
+          <div className="sm:hidden p-3 min-h-[170px] flex flex-col justify-center gap-2.5">
             {!scannedOrder ? (
-              <div className="py-12 flex flex-col items-center justify-center text-center">
+              <div className="py-8 flex flex-col items-center justify-center text-center">
                 <AntEmptyImage />
-                <span className="mt-2 text-xs text-gray-400 dark:text-gray-500 font-medium">Belum ada pesanan yang discan</span>
-                <span className="text-[11px] text-gray-400 mt-0.5">Arahkan kamera ke barcode resi atau ketik di atas</span>
+                <span className="mt-2 text-xs font-semibold text-slate-400 dark:text-gray-500">Tidak ada data</span>
+                <span className="text-[11px] text-slate-400 dark:text-gray-500 mt-0.5">Arahkan kamera ke barcode resi atau ketik di atas</span>
               </div>
             ) : (
-              <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-2.5 animate-in fade-in">
                 {/* Mobile Order Summary Banner */}
-                <div className="p-3 bg-purple-50/80 dark:bg-purple-950/40 rounded-xl border border-purple-200/80 dark:border-purple-800 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">
+                <div className="p-2.5 bg-[#EEF4F0] dark:bg-emerald-950/40 rounded-xl border border-emerald-200/80 dark:border-emerald-800 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#2E5844] dark:text-emerald-400 block">
                       {scannedOrder.platform || 'Pesanan'} • {scannedOrder.shopName}
                     </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200">
-                      {scannedOrder.items.reduce((acc, i) => acc + (i.qty || 1), 0)} Item
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500 dark:text-gray-400">No. Pesanan:</span>
-                    <span className="font-mono font-bold text-gray-900 dark:text-white">
+                    <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">
                       {scannedOrder.channelOrderSn || scannedOrder.orderSn}
                     </span>
                   </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white dark:bg-gray-800 text-[#1B3629] dark:text-emerald-200 border border-emerald-200 dark:border-emerald-700">
+                    {scannedOrder.orderStatus || `${scannedOrder.items.reduce((acc, i) => acc + (i.qty || 1), 0)} Item`}
+                  </span>
                 </div>
 
                 {/* Items List Mobile */}
                 {scannedOrder.items.map((item, idx) => (
                   <div
                     key={`${scannedOrder.orderSn}-${idx}`}
-                    className="p-3 bg-gray-50/80 dark:bg-gray-750/70 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs flex gap-3 items-start"
+                    className="p-2.5 bg-[#F9FAF9] dark:bg-gray-750/70 rounded-xl border border-slate-200/80 dark:border-gray-700 flex gap-2.5 items-center"
                   >
                     {item.imageUrl ? (
                       <img
                         src={item.imageUrl}
                         alt={item.productName}
-                        className="w-14 h-14 rounded-lg border border-gray-200 dark:border-gray-700 object-cover shrink-0 bg-white"
+                        className="w-12 h-12 rounded-lg border border-slate-200 dark:border-gray-700 object-cover shrink-0 bg-white"
                       />
                     ) : (
-                      <div className="w-14 h-14 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 flex items-center justify-center shrink-0">
-                        <Package size={22} className="text-gray-400" />
+                      <div className="w-10 h-10 rounded-lg bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-700 flex items-center justify-center shrink-0">
+                        <Package size={18} className="text-[#2E5844] dark:text-emerald-400" />
                       </div>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-xs font-bold text-gray-900 dark:text-white line-clamp-2 leading-snug">
+                    <div className="flex-1 min-w-0 text-left">
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
                         {item.productName}
                       </h4>
                       {item.variant && (
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium mt-0.5">
+                        <p className="text-[10px] text-slate-500 dark:text-gray-400 truncate mt-0.5">
                           Variasi: {item.variant}
                         </p>
                       )}
-                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-white dark:bg-gray-800 text-[#2E5844] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700">
                           MSKU: {item.msku && !['JOYKO-PROD', 'JOYKO-RESI', 'JOYKO-GEN', 'BAG-RSB-100-12X20'].includes(item.msku)
                             ? item.msku
                             : (item.sku && item.sku !== scannedOrder.orderSn && item.sku !== scannedOrder.channelOrderSn && !['JOYKO-PROD', 'JOYKO-RESI', 'JOYKO-GEN', 'BAG-RSB-100-12X20'].includes(item.sku)
                               ? item.sku
                               : '-')}
                         </span>
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                        <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-[#E28864]/10 text-[#C26B47] border border-[#E28864]/20">
                           Qty: {item.qty}
                         </span>
                         <div className="ml-auto">
@@ -3050,7 +3081,7 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
           <div className="hidden sm:block overflow-x-auto min-h-[300px]">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#fafafa] dark:bg-gray-750 border-b border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 font-semibold">
+                <tr className="bg-[#FBFDFB] dark:bg-gray-750 border-b border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300 font-bold">
                   <th className="py-2.5 px-3 w-[20%]">No. Pesanan</th>
                   <th className="py-2.5 px-3 w-[35%]">Master Produk & Gambar</th>
                   <th className="py-2.5 px-3 w-[15%]">SKU Channel</th>
@@ -3058,25 +3089,25 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                   <th className="py-2.5 px-3 w-[15%] text-center">Jml.</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60 text-gray-700 dark:text-gray-300">
+              <tbody className="divide-y divide-slate-100 dark:divide-gray-700/60 text-slate-700 dark:text-gray-300">
                 {!scannedOrder ? (
                   <tr>
                     <td colSpan={5} className="py-16 text-center">
                       <div className="flex flex-col items-center justify-center">
                         <AntEmptyImage />
-                        <span className="mt-2 text-xs text-gray-400 dark:text-gray-500">Tidak ada data</span>
+                        <span className="mt-2 text-xs font-semibold text-slate-400 dark:text-gray-500">Tidak ada data</span>
                       </div>
                     </td>
                   </tr>
                 ) : (
                   scannedOrder.items.map((item, idx) => (
-                    <tr key={`${scannedOrder.orderSn}-${idx}`} className="hover:bg-gray-50/70 dark:hover:bg-gray-750/50 transition-colors">
+                    <tr key={`${scannedOrder.orderSn}-${idx}`} className="hover:bg-[#F4F7F4]/60 dark:hover:bg-gray-750/50 transition-colors">
                       {/* No. Pesanan */}
                       <td className="py-3 px-3 align-top">
-                        <div className="font-mono text-xs font-semibold text-gray-900 dark:text-white">
+                        <div className="font-mono text-xs font-semibold text-slate-900 dark:text-white">
                           {scannedOrder.channelOrderSn || scannedOrder.orderSn}
                         </div>
-                        <div className="text-[10px] text-gray-400 mt-0.5">
+                        <div className="text-[10px] text-slate-400 dark:text-gray-400 mt-0.5">
                           {scannedOrder.platform} • {scannedOrder.shopName}
                         </div>
                       </td>
@@ -3088,19 +3119,19 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                             <img
                               src={item.imageUrl}
                               alt={item.productName}
-                              className="w-10 h-10 rounded border border-gray-200 dark:border-gray-700 object-cover shrink-0 bg-white shadow-2xs"
+                              className="w-10 h-10 rounded-lg border border-slate-200 dark:border-gray-700 object-cover shrink-0 bg-white shadow-2xs"
                             />
                           ) : (
-                            <div className="w-10 h-10 rounded border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 flex items-center justify-center shrink-0 overflow-hidden">
-                              <Package size={18} className="text-gray-400 dark:text-gray-500" />
+                            <div className="w-10 h-10 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-700 flex items-center justify-center shrink-0 overflow-hidden">
+                              <Package size={18} className="text-[#2E5844] dark:text-emerald-400" />
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 line-clamp-2 leading-tight">
+                            <p className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-tight">
                               {item.productName}
                             </p>
                             {item.variant && (
-                              <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mt-0.5">
+                              <p className="text-[10px] text-slate-500 dark:text-gray-400 font-medium mt-0.5">
                                 {item.variant}
                               </p>
                             )}
@@ -3109,12 +3140,12 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                       </td>
 
                       {/* SKU Channel */}
-                      <td className="py-3 px-3 align-top font-mono text-[11px] text-gray-600 dark:text-gray-300">
+                      <td className="py-3 px-3 align-top font-mono text-[11px] text-slate-600 dark:text-gray-300">
                         {item.sku}
                       </td>
 
                       {/* MSKU */}
-                      <td className="py-3 px-3 align-top font-mono text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                      <td className="py-3 px-3 align-top font-mono text-[11px] font-bold text-[#2E5844] dark:text-emerald-400">
                         {item.msku && !['JOYKO-PROD', 'JOYKO-RESI', 'JOYKO-GEN', 'BAG-RSB-100-12X20'].includes(item.msku)
                           ? item.msku
                           : (item.sku && item.sku !== scannedOrder.orderSn && item.sku !== scannedOrder.channelOrderSn && !['JOYKO-PROD', 'JOYKO-RESI', 'JOYKO-GEN', 'BAG-RSB-100-12X20'].includes(item.sku)
@@ -3125,7 +3156,7 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                       {/* Jml. */}
                       <td className="py-3 px-3 align-top text-center">
                         <div className="flex flex-col items-center gap-1.5">
-                          <span className="inline-block px-2 py-0.5 bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 rounded font-bold text-xs">
+                          <span className="inline-block px-2 py-0.5 bg-[#E28864]/10 border border-[#E28864]/20 text-[#C26B47] rounded-md font-bold text-xs">
                             {item.qty}
                           </span>
                           <GineeScanLogisticsIcon
@@ -3144,29 +3175,31 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
         </div>
 
         {/* Right Card: Riwayat Scan */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-2xs overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-emerald-950/10 dark:border-gray-700 shadow-[0_4px_16px_-4px_rgba(45,90,67,0.06)] overflow-hidden">
           {/* Card Header Bar */}
-          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between bg-gray-50/50 dark:bg-gray-800/80">
-            <span className="text-sm font-bold text-gray-900 dark:text-white">Riwayat Scan</span>
-            <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-              <span className="font-medium">
-                Scan: <strong className="text-purple-600 dark:text-purple-400">{scanHistory.length}</strong>
-              </span>
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-gray-700 flex items-center justify-between bg-[#FBFDFB] dark:bg-gray-800/90">
+            <span className="text-sm font-extrabold text-slate-900 dark:text-white tracking-tight">Riwayat Scan</span>
+            <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-gray-300">
+              {/* Scan Counter Pill */}
+              <div className="px-2.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs font-bold">
+                <span className="text-[#E28864] font-mono font-extrabold">{scanHistory.length}</span>
+                <span className="text-slate-500 dark:text-gray-400 font-normal ml-1">Scan</span>
+              </div>
 
               {/* Tombol Export Excel */}
               <button
                 type="button"
                 onClick={handleExportScanHistoryExcel}
                 disabled={scanHistory.length === 0}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 transition-colors cursor-pointer text-[11px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4F7F4] dark:bg-gray-700 hover:bg-[#EAEFEA] dark:hover:bg-gray-650 text-[#2E5844] dark:text-emerald-300 border border-emerald-900/10 dark:border-gray-600 transition-all cursor-pointer text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
                 title="Ekspor seluruh hasil riwayat scan ke Excel (.xlsx) dengan format teks murni"
               >
-                <FileSpreadsheet size={13} className="text-emerald-600 dark:text-emerald-400" />
-                <span>Export Excel</span>
+                <FileSpreadsheet size={13} className="text-[#2E5844] dark:text-emerald-400" />
+                <span className="hidden sm:inline">Export Excel</span>
               </button>
 
               {confirmClearHistoryOpen ? (
-                <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 px-2 py-0.5 rounded text-[11px] animate-in fade-in">
+                <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 px-2 py-0.5 rounded-xl text-xs animate-in fade-in">
                   <span className="text-red-700 dark:text-red-300 font-semibold">Bersihkan total?</span>
                   <button
                     type="button"
@@ -3174,14 +3207,14 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                       await handleClearHistory();
                       alert('✓ Riwayat scan berhasil dibersihkan total sampai ke akar! Semua resi siap diuji ulang dari awal.');
                     }}
-                    className="px-1.5 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded font-bold cursor-pointer transition-colors"
+                    className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold cursor-pointer transition-colors"
                   >
                     Ya
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmClearHistoryOpen(false)}
-                    className="px-1.5 py-0.5 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded cursor-pointer transition-colors"
+                    className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg cursor-pointer transition-colors"
                   >
                     Batal
                   </button>
@@ -3190,61 +3223,61 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                 <button
                   type="button"
                   onClick={() => setConfirmClearHistoryOpen(true)}
-                  className="flex items-center gap-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 px-2 py-1 rounded transition-colors cursor-pointer text-[11px] font-medium"
+                  className="flex items-center gap-1 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 px-2 py-1 rounded-xl transition-all cursor-pointer text-xs font-medium"
                   title="Bersihkan seluruh riwayat scan sampai ke akar dan reset status pemindaian pesanan"
                 >
-                  <Trash2 size={12} />
-                  <span>Hapus Semua</span>
+                  <Trash2 size={13} />
+                  <span className="hidden sm:inline">Hapus Semua</span>
                 </button>
               )}
             </div>
           </div>
 
           {/* Mobile Card List (Riwayat Scan) */}
-          <div className="sm:hidden p-3 min-h-[200px] max-h-[480px] overflow-y-auto flex flex-col gap-2">
+          <div className="sm:hidden p-3 min-h-[170px] max-h-[420px] overflow-y-auto flex flex-col gap-2">
             {scanHistory.length === 0 ? (
-              <div className="py-12 flex flex-col items-center justify-center text-center">
+              <div className="py-8 flex flex-col items-center justify-center text-center">
                 <AntEmptyImage />
-                <span className="mt-2 text-xs text-gray-400 dark:text-gray-500 font-medium">Belum ada riwayat scan</span>
+                <span className="mt-2 text-xs font-semibold text-slate-400 dark:text-gray-500">Tidak ada riwayat scan</span>
               </div>
             ) : (
               scanHistory.map((item, idx) => (
                 <div
                   key={item.id}
-                  className="p-3 bg-gray-50/80 dark:bg-gray-750/70 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs flex items-center justify-between gap-2"
+                  className="p-2.5 bg-[#F9FAF9] dark:bg-gray-750/70 rounded-xl border border-slate-200/80 dark:border-gray-700 shadow-2xs flex items-center justify-between gap-2"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-purple-700 dark:text-purple-300 font-bold text-xs shrink-0">
+                    <div className="w-7 h-7 rounded-lg bg-[#F4F7F4] dark:bg-gray-700 border border-emerald-900/10 dark:border-gray-600 flex items-center justify-center text-[#2E5844] dark:text-emerald-400 font-bold text-xs shrink-0 font-mono">
                       {scanHistory.length - idx}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <GineeScanLogisticsIcon size={14} title="Status Pemindaian: Discan Logistik" />
-                        <span className="font-mono font-bold text-xs text-gray-900 dark:text-white truncate">
+                        <span className="font-mono font-bold text-xs text-slate-900 dark:text-white truncate">
                           {item.trackingNo}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleCopy(item.trackingNo)}
-                          className="text-gray-400 hover:text-purple-600 p-0.5 cursor-pointer"
+                          className="text-slate-400 hover:text-[#2E5844] p-0.5 cursor-pointer"
                           title="Salin nomor resi"
                         >
                           {copiedResi === item.trackingNo ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
                         </button>
                       </div>
-                      <div className="text-[10px] text-gray-400 mt-0.5 truncate">
+                      <div className="text-[10px] text-slate-400 dark:text-gray-400 mt-0.5 truncate">
                         {item.orderSn} • {item.timestamp}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="px-2 py-0.5 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 rounded font-bold text-xs">
+                    <span className="px-2 py-0.5 bg-[#E28864]/10 border border-[#E28864]/20 text-[#C26B47] rounded-md font-bold text-xs">
                       {item.totalQty}
                     </span>
                     <button
                       type="button"
                       onClick={() => handleDeleteScanItem(item.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer transition-colors"
+                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer transition-colors"
                       title="Hapus baris ini dari riwayat"
                     >
                       <Trash2 size={13} />
@@ -3259,7 +3292,7 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
           <div className="hidden sm:block overflow-x-auto max-h-[500px] overflow-y-auto min-h-[300px]">
             <table className="w-full text-left border-collapse text-xs">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-[#fafafa] dark:bg-gray-750 border-b border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 font-semibold shadow-2xs">
+                <tr className="bg-[#FBFDFB] dark:bg-gray-750 border-b border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300 font-bold shadow-2xs">
                   <th className="py-2.5 px-3 w-[45px] text-center">No.</th>
                   <th className="py-2.5 px-3">Nomor Resi</th>
                   <th className="py-2.5 px-3">No. Pesanan</th>
@@ -3267,30 +3300,30 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                   <th className="py-2.5 px-2 w-[45px] text-center">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60 text-gray-700 dark:text-gray-300">
+              <tbody className="divide-y divide-slate-100 dark:divide-gray-700/60 text-slate-700 dark:text-gray-300">
                 {scanHistory.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-16 text-center">
                       <div className="flex flex-col items-center justify-center">
                         <AntEmptyImage />
-                        <span className="mt-2 text-xs text-gray-400 dark:text-gray-500">Tidak ada data</span>
+                        <span className="mt-2 text-xs font-semibold text-slate-400 dark:text-gray-500">Tidak ada data</span>
                       </div>
                     </td>
                   </tr>
                 ) : (
                   scanHistory.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-gray-50/70 dark:hover:bg-gray-750/50 transition-colors group">
-                      <td className="py-2.5 px-3 text-center text-gray-400 font-medium">
+                    <tr key={item.id} className="hover:bg-[#F4F7F4]/60 dark:hover:bg-gray-750/50 transition-colors group">
+                      <td className="py-2.5 px-3 text-center text-slate-400 font-medium">
                         {scanHistory.length - idx}
                       </td>
-                      <td className="py-2.5 px-3 font-mono font-medium text-gray-900 dark:text-white">
+                      <td className="py-2.5 px-3 font-mono font-medium text-slate-900 dark:text-white">
                         <div className="flex items-center gap-1.5">
                           <GineeScanLogisticsIcon size={15} title="Status Pemindaian: Sudah Discan Logistik" />
-                          <span>{item.trackingNo}</span>
+                          <span className="font-bold">{item.trackingNo}</span>
                           <button
                             type="button"
                             onClick={() => handleCopy(item.trackingNo)}
-                            className="text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 cursor-pointer"
+                            className="text-slate-400 hover:text-[#2E5844] dark:hover:text-emerald-400 cursor-pointer"
                             title="Salin nomor resi"
                           >
                             {copiedResi === item.trackingNo ? (
@@ -3300,19 +3333,19 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
                             )}
                           </button>
                         </div>
-                        <div className="text-[10px] text-gray-400 mt-0.5">{item.timestamp}</div>
+                        <div className="text-[10px] text-slate-400 dark:text-gray-400 mt-0.5">{item.timestamp}</div>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-[11px] text-gray-600 dark:text-gray-300">
+                      <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-gray-300">
                         {item.orderSn}
                       </td>
-                      <td className="py-2.5 px-3 text-center font-bold text-gray-800 dark:text-white">
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-800 dark:text-white">
                         {item.totalQty}
                       </td>
                       <td className="py-2.5 px-2 text-center">
                         <button
                           type="button"
                           onClick={() => handleDeleteScanItem(item.id)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
                           title="Hapus baris ini dari riwayat"
                         >
                           <Trash2 size={13} />
@@ -3327,40 +3360,39 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
         </div>
       </div>
 
-
-
-      {/* ─── Gagal Scan Alert Overlay — Mirip 100% dialog Ginee OMS ─────────────── */}
+      {/* ─── Gagal Scan Alert Overlay ─────────────────────────────────────── */}
       {alertOverlayOpen && (
         <div
           id="ginee-alert-overlay"
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
           onClick={(e) => { if (e.target === e.currentTarget) { setAlertOverlayOpen(false); safeFocusInput({ ignoreOverlays: true }); } }}
         >
-          <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-lg shadow-2xl max-w-sm w-full p-5 flex flex-col gap-3 border border-gray-200 dark:border-gray-700">
-            {/* Header — mirip Ginee: ikon merah + judul */}
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-sm w-full p-6 flex flex-col gap-3.5 border border-rose-200 dark:border-rose-900">
+            {/* Header */}
             <div className="flex items-center gap-2.5">
-              <span className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center shrink-0">
-                <XCircle size={16} className="text-white" />
+              <span className="w-8 h-8 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0">
+                <XCircle size={18} />
               </span>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Pemindaian gagal</h3>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Pemindaian Gagal</h3>
             </div>
 
-            {/* Body — pesan utama persis format Ginee */}
-            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">
+            {/* Body */}
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-gray-300 whitespace-pre-line leading-relaxed">
               {alertOverlayMessage}
             </p>
 
-            {/* Footer button — mirip Ginee tombol merah */}
+            {/* Footer */}
             <div className="flex justify-end pt-1">
               <button
                 id="stop-alert-btn"
+                type="button"
                 onClick={() => {
                   setAlertOverlayOpen(false);
                   safeFocusInput({ ignoreOverlays: true });
                 }}
-                className="px-5 py-2 bg-[#ff4d4f] hover:bg-[#f5222d] active:bg-[#cf1322] text-white text-sm font-semibold rounded-md transition-all cursor-pointer shadow-sm"
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs sm:text-sm font-bold rounded-2xl transition-all cursor-pointer shadow-sm"
               >
                 Konfirmasi
               </button>
@@ -3369,26 +3401,26 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
         </div>
       )}
 
-      {/* ─── Resi Duplikat — Mirip 100% dialog Ginee OMS ─────────────────────── */}
+      {/* ─── Resi Duplikat Alert Overlay ───────────────────────────────────── */}
       {duplicateOverlayOpen && (
         <div
           id="ginee-duplicate-overlay"
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
           onClick={(e) => { if (e.target === e.currentTarget) { setDuplicateOverlayOpen(false); safeFocusInput({ ignoreOverlays: true }); } }}
         >
-          <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-lg shadow-2xl max-w-sm w-full p-5 flex flex-col gap-3 border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-sm w-full p-6 flex flex-col gap-3.5 border border-amber-200 dark:border-amber-900">
             {/* Header */}
             <div className="flex items-center gap-2.5">
-              <span className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center shrink-0">
-                <XCircle size={16} className="text-white" />
+              <span className="w-8 h-8 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertCircle size={18} />
               </span>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Pemindaian gagal</h3>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Resi Duplikat</h3>
             </div>
 
-            {/* Body — pesan duplikat persis format Ginee */}
-            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">
+            {/* Body */}
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-gray-300 whitespace-pre-line leading-relaxed">
               {duplicateOverlayMessage}
             </p>
 
@@ -3396,11 +3428,12 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
             <div className="flex justify-end pt-1">
               <button
                 id="stop-duplicate-btn"
+                type="button"
                 onClick={() => {
                   setDuplicateOverlayOpen(false);
                   safeFocusInput({ ignoreOverlays: true });
                 }}
-                className="px-5 py-2 bg-[#ff4d4f] hover:bg-[#f5222d] active:bg-[#cf1322] text-white text-sm font-semibold rounded-md transition-all cursor-pointer shadow-sm"
+                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs sm:text-sm font-bold rounded-2xl transition-all cursor-pointer shadow-sm"
               >
                 Konfirmasi
               </button>
@@ -3409,28 +3442,28 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
         </div>
       )}
 
-      {/* ─── Catatan Pembeli Alert Overlay — Mirip 100% dialog Ginee OMS ───────── */}
+      {/* ─── Catatan Pembeli Alert Overlay ─────────────────────────────────── */}
       {buyerNoteAlertOpen && (
         <div
           id="ginee-note-overlay"
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
           onClick={(e) => { if (e.target === e.currentTarget) { setBuyerNoteAlertOpen(false); safeFocusInput({ ignoreOverlays: true }); } }}
         >
-          <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-lg shadow-2xl max-w-sm w-full p-5 flex flex-col gap-3 border border-amber-300 dark:border-amber-600">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-sm w-full p-6 flex flex-col gap-3.5 border border-emerald-200 dark:border-emerald-800">
             {/* Header */}
             <div className="flex items-center gap-2.5">
-              <span className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center shrink-0 text-white font-bold text-xs">
-                !
+              <span className="w-8 h-8 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-[#244E38] dark:text-emerald-300 flex items-center justify-center shrink-0">
+                <Info size={18} />
               </span>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Catatan Pembeli</h3>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Catatan Pembeli</h3>
             </div>
 
             {/* Body */}
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-md">
-              <p className="text-sm font-medium text-amber-900 dark:text-amber-200 whitespace-pre-line leading-relaxed">
-                {buyerNoteAlertMessage}
+            <div className="p-3 bg-[#EEF4F0] dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl">
+              <p className="text-xs sm:text-sm text-[#1B3629] dark:text-emerald-200 leading-relaxed">
+                "{buyerNoteAlertMessage}"
               </p>
             </div>
 
@@ -3438,11 +3471,12 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
             <div className="flex justify-end pt-1">
               <button
                 id="confirm-note-btn"
+                type="button"
                 onClick={() => {
                   setBuyerNoteAlertOpen(false);
                   safeFocusInput({ ignoreOverlays: true });
                 }}
-                className="px-5 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-sm font-semibold rounded-md transition-all cursor-pointer shadow-sm"
+                className="px-5 py-2.5 bg-[#2E5844] hover:bg-[#244E38] active:scale-95 text-white text-xs sm:text-sm font-bold rounded-2xl transition-all cursor-pointer shadow-sm"
               >
                 Konfirmasi
               </button>
@@ -4254,31 +4288,35 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
 
       {/* ─── Floating Camera Action Bar (Mobile Only - Thumb-friendly) ─────── */}
       <div className="fixed bottom-3 left-3 right-3 sm:hidden z-40 animate-in fade-in slide-in-from-bottom-2 duration-200">
-        <button
-          type="button"
-          onClick={() => {
-            if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-            if (inputRef.current) inputRef.current.blur();
-            setRecentScans([]);
-            setIsCameraOpen(true);
-          }}
-          className="w-full py-3 px-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 text-white font-bold rounded-2xl shadow-[0_8px_25px_rgba(109,40,217,0.4)] flex items-center justify-between active:scale-[0.98] transition-all border border-purple-400/30 backdrop-blur-md"
-        >
+        <div className="w-full p-2.5 bg-gradient-to-r from-[#2E5844] via-[#33614B] to-[#244E38] rounded-2xl shadow-[0_8px_25px_rgba(46,88,68,0.35)] flex items-center justify-between border border-emerald-300/20 backdrop-blur-md">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shadow-inner">
-              <Camera size={20} className="text-white animate-pulse" />
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
+              <Camera size={19} className="animate-pulse" />
             </div>
-            <div className="text-left">
-              <div className="text-sm font-extrabold leading-tight">Buka Kamera Scanner</div>
-              <div className="text-[11px] text-purple-200">
+            <div className="text-left text-white">
+              <div className="text-xs font-extrabold leading-tight tracking-tight">
+                Buka Kamera Scanner
+              </div>
+              <div className="text-[10px] text-emerald-200 font-medium">
                 {isContinuousScan ? 'Mode Berkelanjutan (Scan Terus)' : 'Mode Normal (1x Scan)'}
               </div>
             </div>
           </div>
-          <span className="px-3 py-1 rounded-full text-xs font-bold bg-white text-purple-700 shadow-xs">
+
+          {/* Tombol Putih Scan */}
+          <button
+            type="button"
+            onClick={() => {
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+              if (inputRef.current) inputRef.current.blur();
+              setRecentScans([]);
+              setIsCameraOpen(true);
+            }}
+            className="px-4 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-[#2E5844] text-xs font-extrabold rounded-full shadow-md cursor-pointer transition-all"
+          >
             Scan
-          </span>
-        </button>
+          </button>
+        </div>
       </div>
 
       {/* ─── Camera Scanner Modal (Continuous & Single Scan Mode) ─────────── */}
