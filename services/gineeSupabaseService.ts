@@ -1,6 +1,6 @@
 import { gineeSupabase as supabase } from './supabaseGineeClient';
 import { supabase as mainSupabase } from './supabaseClient';
-import { GineeOrder } from './gineeService';
+import { GineeOrder, isValidAwbFormat } from './gineeService';
 import { isGineeSyncEnabled } from './gineeGlobalSyncService';
 
 export const GINEE_ORDERS_TABLE = 'ginee_orders';
@@ -289,12 +289,9 @@ export async function saveGineeOrdersToSupabase(
             const isTrackingAwb = (t: string) => {
               const clean = t.trim().toUpperCase();
               return (
-                clean.length >= 6 &&
-                clean !== '-' &&
-                !clean.startsWith('SO') &&
+                isValidAwbFormat(clean) &&
                 clean !== cleanOrderSn &&
-                clean !== cleanChannelSn &&
-                !/^\d{18,}$/.test(clean) // menolak order SN numerik panjang shopee/tiktok
+                clean !== cleanChannelSn
               );
             };
 
@@ -804,7 +801,7 @@ export async function reconcileCancelledOrdersWithTrackings(): Promise<{ success
       if (Array.isArray(gineeMatches)) {
         for (const gm of gineeMatches) {
           const trk = (gm.tracking_no || '').trim().toUpperCase();
-          if (!trk || trk === '-') continue;
+          if (!trk || trk === '-' || !isValidAwbFormat(trk)) continue;
 
           const cancelRow = orderIdMap.get(String(gm.order_id).toUpperCase());
           if (cancelRow) {
@@ -857,7 +854,7 @@ export async function reconcileCancelledOrdersWithTrackings(): Promise<{ success
       if (Array.isArray(gineeMatches)) {
         for (const gm of gineeMatches) {
           const trk = (gm.tracking_no || '').trim().toUpperCase();
-          if (!trk || trk === '-') continue;
+          if (!trk || trk === '-' || !isValidAwbFormat(trk)) continue;
 
           const cancelRow = channelSnMap.get(String(gm.channel_order_sn).toUpperCase());
           if (cancelRow) {
@@ -954,8 +951,8 @@ export async function syncGineeCancelledOrdersToKalindo(
     const uniqueGineeMap = new Map<string, any>();
     for (const r of gineeCancels) {
       const trk = String(r.tracking_no || '').trim().toUpperCase();
-      // Pastikan hanya nomor resi/AWB kurir valid (bukan ID pesanan SO... atau angka pesanan 18+ digit)
-      if (trk && trk.length >= 6 && !trk.startsWith('SO') && !/^\d{18,}$/.test(trk) && !uniqueGineeMap.has(trk)) {
+      // Pastikan hanya nomor resi/AWB kurir valid (bukan ID pesanan SO... atau order SN Shopee/TikTok)
+      if (trk && isValidAwbFormat(trk) && !uniqueGineeMap.has(trk)) {
         uniqueGineeMap.set(trk, r);
       }
     }

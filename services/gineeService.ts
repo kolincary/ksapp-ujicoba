@@ -143,6 +143,26 @@ export function resolveShopName(rawShop?: string, platform?: string): string {
 }
 
 /**
+ * Validator ketat Nomor Resi Kurir / Waybill (AWB).
+ * Menolak keras segala bentuk ID pesanan marketplace, Ginee Sales Order (SO...),
+ * nomor booking internal, dan nomor numerik panjang.
+ */
+export function isValidAwbFormat(val: any): boolean {
+  if (!val || typeof val !== 'string') return false;
+  const clean = val.trim().toUpperCase();
+  if (clean.length < 6 || clean === '-' || clean === 'NULL' || clean === 'UNDEFINED') return false;
+  // Tolak Ginee Sales Order ID internal (SO...)
+  if (clean.startsWith('SO')) return false;
+  // Tolak Order SN Shopee (e.g. 2611110U63PX0K atau format YYMMDD + alphanumeric panjang)
+  if (/^\d{6}[A-Z0-9]{8,}$/.test(clean)) return false;
+  // Tolak Order ID numerik panjang marketplace (15+ digit TikTok, Lazada, dll)
+  if (/^\d{15,}$/.test(clean)) return false;
+  // Tolak Order ID format Lazada strip (e.g. 12199965349-12276804918)
+  if (/^\d{8,}-\d{8,}$/.test(clean)) return false;
+  return true;
+}
+
+/**
  * Ekstraksi nomor resi / tracking / waybill terlengkap dari berbagai format respon Ginee OMS V3.
  * Mendukung Shopee SPX (SPXID...), J&T Express, SiCepat, AnterAja, Ninja, TikTok Express, dll.
  */
@@ -172,8 +192,8 @@ export function extractOrderTrackingNo(raw: any): string {
         l.expressNo ||
         l.waybillCode ||
         l.trackingCode;
-      if (val && typeof val === 'string' && val.trim() !== '' && val.trim() !== '-') {
-        return val.trim();
+      if (val && typeof val === 'string' && isValidAwbFormat(val)) {
+        return val.trim().toUpperCase();
       }
     }
   }
@@ -182,7 +202,6 @@ export function extractOrderTrackingNo(raw: any): string {
   const pkgListArr =
     raw.packageList ||
     raw.payload?.packageList ||
-    raw.rawPayload?.payload?.packageList ||
     raw.rawPayload?.packageList ||
     raw.orderPackageList;
   if (Array.isArray(pkgListArr) && pkgListArr.length > 0) {
@@ -199,8 +218,8 @@ export function extractOrderTrackingNo(raw: any): string {
         pkg.mailNo ||
         pkg.expressNo ||
         pkg.waybillCode;
-      if (val && typeof val === 'string' && val.trim() !== '' && val.trim() !== '-') {
-        return val.trim();
+      if (val && typeof val === 'string' && isValidAwbFormat(val)) {
+        return val.trim().toUpperCase();
       }
     }
   }
@@ -217,13 +236,13 @@ export function extractOrderTrackingNo(raw: any): string {
         pkg.awbNo ||
         pkg.mailNo ||
         pkg.expressNo;
-      if (val && typeof val === 'string' && val.trim() !== '' && val.trim() !== '-') {
-        return val.trim();
+      if (val && typeof val === 'string' && isValidAwbFormat(val)) {
+        return val.trim().toUpperCase();
       }
     }
   }
 
-  // 4. Properti langsung di level root objek pesanan Ginee V3
+  // 4. Properti langsung di level root objek pesanan Ginee V3 (HANYA FIELD RESI ASLI)
   const direct =
     raw.trackingNo ||
     raw.trackingNumber ||
@@ -261,14 +280,10 @@ export function extractOrderTrackingNo(raw: any): string {
     raw.shippingDocument?.waybillNo ||
     raw.fulfillmentInfo?.trackingNo ||
     raw.fulfillmentInfo?.waybillNo ||
-    raw.externalBookingSn ||
-    raw.bookingSn ||
-    raw.bookingNo ||
-    raw.shippingCarrierNo ||
-    raw.shippingOrderNo;
+    raw.shippingCarrierNo;
 
-  if (direct && typeof direct === 'string' && direct.trim() !== '' && direct.trim() !== '-') {
-    return direct.trim();
+  if (direct && typeof direct === 'string' && isValidAwbFormat(direct)) {
+    return direct.trim().toUpperCase();
   }
 
   return '-';
@@ -282,14 +297,10 @@ export function extractAllTrackingNos(raw: any): string[] {
   const set = new Set<string>();
 
   const add = (val: any) => {
-    if (val && typeof val === 'string' && val.trim() !== '' && val.trim() !== '-') {
-      set.add(val.trim());
+    if (val && typeof val === 'string' && isValidAwbFormat(val)) {
+      set.add(val.trim().toUpperCase());
     }
   };
-
-  add(raw.externalBookingSn);
-  add(raw.bookingSn);
-  add(raw.bookingNo);
 
   const logisticsArr =
     raw.logistics ||
@@ -351,22 +362,19 @@ export function extractAllTrackingNos(raw: any): string[] {
   add(raw.trackingNumber);
   add(raw.waybillNo);
   add(raw.waybillNumber);
-  add(raw.waybillCode);
-  add(raw.mailNo);
   add(raw.awbNo);
+  add(raw.awb);
   add(raw.expressNo);
-  add(raw.expressCode);
-  add(raw.logisticsNo);
-  add(raw.trackingCode);
   add(raw.shippingNo);
+  add(raw.shippingNumber);
   add(raw.channelTrackingNo);
   add(raw.shippingDocumentInfo?.waybillNo);
   add(raw.shippingDocumentInfo?.trackingNo);
+  add(raw.shippingDocumentInfo?.trackingNumber);
   add(raw.shippingInfo?.trackingNo);
   add(raw.shippingInfo?.waybillNo);
   add(raw.deliveryInfo?.trackingNo);
-  add(raw.deliveryOrder?.trackingNo);
-  add(raw.deliveryOrder?.waybillNo);
+  add(raw.deliveryInfo?.waybillNo);
   add(raw.shippingDocument?.trackingNo);
   add(raw.shippingDocument?.waybillNo);
 
@@ -2275,14 +2283,14 @@ export async function fetchGineeOrders(params: {
               raw.shippingLabelStatus === 'PRINTED' ||
               raw.waybillPrinted ||
               (raw.shippingDocumentInfo && (raw.shippingDocumentInfo.isPrinted || raw.shippingDocumentInfo.shippingLabelStatus === 'PRINTED')) ||
-              (resolvedTrackingNo && resolvedTrackingNo !== '-' && resolvedTrackingNo.length > 5) ||
+              (resolvedTrackingNo && resolvedTrackingNo !== '-' && isValidAwbFormat(resolvedTrackingNo)) ||
               knownMatch?.labelPrinted
             ),
             shippingLabelStatus:
               raw.shippingLabelStatus ||
               raw.printStatus ||
               raw.shippingLabelPrintStatus ||
-              (raw.isPrintWaybill || raw.isPrinted || (resolvedTrackingNo && resolvedTrackingNo !== '-' && resolvedTrackingNo.length > 5) ? 'PRINTED' : 'UNPRINTED'),
+              (raw.isPrintWaybill || raw.isPrinted || (resolvedTrackingNo && resolvedTrackingNo !== '-' && isValidAwbFormat(resolvedTrackingNo)) ? 'PRINTED' : 'UNPRINTED'),
             cancelTime:
               raw.cancelTime ||
               raw.cancelledTime ||
@@ -2510,7 +2518,7 @@ export async function fetchGineeOrders(params: {
           paymentMethod: raw.paymentMethod || knownMatch?.paymentMethod || 'Non COD',
           isCod: Boolean(raw.isCod || raw.cod || knownMatch?.isCod),
           isPreOrder: Boolean(raw.isPreOrder || knownMatch?.isPreOrder),
-          labelPrinted: Boolean(raw.isPrintWaybill || raw.labelPrinted || knownMatch?.labelPrinted || (resolvedTrackingNo && resolvedTrackingNo !== '-')),
+          labelPrinted: Boolean(raw.isPrintWaybill || raw.labelPrinted || knownMatch?.labelPrinted || (resolvedTrackingNo && resolvedTrackingNo !== '-' && isValidAwbFormat(resolvedTrackingNo))),
           orderTime: raw.createAt || raw.orderTime || raw.createTime || knownMatch?.orderTime || new Date().toISOString(),
           payTime: raw.payAt || raw.payTime || knownMatch?.payTime || '-',
           shipByTime: raw.promisedToShipBefore || raw.shipByDate || knownMatch?.shipByTime || '-',

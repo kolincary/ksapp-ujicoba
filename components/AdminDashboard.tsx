@@ -4,6 +4,7 @@ import { UserRole, UserPermissions, UserPins, AdminUser, Employee, AdminDashboar
 import { supabase, supabaseNew } from '../services/supabaseClient';
 import { gineeSupabase } from '../services/supabaseGineeClient';
 import { syncGineeCancelledOrdersToKalindo, safeIsoDate } from '../services/gineeSupabaseService';
+import { isValidAwbFormat } from '../services/gineeService';
 import { isGineeSyncEnabled, setGineeSyncEnabled } from '../services/gineeGlobalSyncService';
 import { logDeletionAction } from '../services/deletionLogService';
 // Firestore imports removed - Fully migrated to Supabase VPS
@@ -3146,11 +3147,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                // Aturan Ketat: HANYA ambil resi / AWB, BUKAN ID pesanan / nomor pemesanan!
                const isRealAwb = (val: string) => {
                   return (
-                     val.length >= 6 &&
+                     isValidAwbFormat(val) &&
                      !reservedWords.has(val) &&
-                     !val.startsWith('SO') &&
-                     val !== cleanOrderId &&
-                     !/^\d{18,}$/.test(val) // Jangan ambil order SN numerik panjang
+                     val !== cleanOrderId
                   );
                };
 
@@ -3201,11 +3200,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                parts.forEach(part => {
                   const candidate = part.replace(/[^A-Z0-9]/gi, '').toUpperCase();
                   if (
-                     candidate.length >= 8 &&
-                     candidate.length <= 30 &&
+                     isValidAwbFormat(candidate) &&
                      !reservedWords.has(candidate) &&
-                     !candidate.startsWith('SO') &&
-                     !/^\d{18,}$/.test(candidate) &&
                      !seenBarcodes.has(candidate)
                   ) {
                      seenBarcodes.add(candidate);
@@ -10296,6 +10292,12 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
       try {
          const barcode = newCancelBarcode.trim().toUpperCase();
 
+         if (!isValidAwbFormat(barcode)) {
+            alert('Format barcode tidak valid! Masukkan Nomor Resi / No. Tracking Kurir yang valid (bukan ID Pesanan atau format SO).');
+            setIsSavingCancelData(false);
+            return;
+         }
+
          // Check if exists (Case Insensitive)
          const { data: existing } = await supabase
             .from('cancelled_orders')
@@ -10330,10 +10332,14 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
    };
 
    const addBulkCancelledOrders = async () => {
-      const lines = bulkCancelBarcodes.split(/[\n,;]+/).map(line => line.trim().toUpperCase()).filter(line => line.length > 0);
+      const allLines = bulkCancelBarcodes.split(/[\n,;]+/).map(line => line.trim().toUpperCase()).filter(line => line.length > 0);
+      const lines = allLines.filter(line => isValidAwbFormat(line));
       if (lines.length === 0) {
-         alert('Tidak ada barcode yang valid untuk ditambahkan.');
+         alert('Tidak ada nomor resi / AWB yang valid untuk ditambahkan. Pastikan memasukkan nomor resi ekspedisi, bukan ID Pesanan.');
          return;
+      }
+      if (lines.length < allLines.length) {
+         console.warn(`[Bulk Cancel] Menyaring ${allLines.length - lines.length} baris yang bukan format AWB valid.`);
       }
 
       setIsSavingCancelData(true);
