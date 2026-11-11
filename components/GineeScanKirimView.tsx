@@ -4288,35 +4288,36 @@ export const GineeScanKirimView: React.FC<GineeScanKirimViewProps> = ({ isDarkMo
 
       {/* ─── Floating Camera Action Bar (Mobile Only - Thumb-friendly) ─────── */}
       <div className="fixed bottom-3 left-3 right-3 sm:hidden z-40 animate-in fade-in slide-in-from-bottom-2 duration-200">
-        <div className="w-full p-2.5 bg-gradient-to-r from-[#2E5844] via-[#33614B] to-[#244E38] rounded-2xl shadow-[0_8px_25px_rgba(46,88,68,0.35)] flex items-center justify-between border border-emerald-300/20 backdrop-blur-md">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
+        <button
+          type="button"
+          onClick={() => {
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+            if (inputRef.current) inputRef.current.blur();
+            setRecentScans([]);
+            setIsCameraOpen(true);
+          }}
+          className="w-full p-2.5 bg-gradient-to-r from-[#2E5844] via-[#33614B] to-[#244E38] hover:from-[#244E38] hover:to-[#1D3A2C] rounded-2xl shadow-[0_8px_25px_rgba(46,88,68,0.35)] flex items-center justify-between border border-emerald-300/20 backdrop-blur-md active:scale-[0.98] transition-all cursor-pointer group select-none text-left"
+          title="Buka Kamera Scanner"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner shrink-0 group-hover:scale-105 transition-transform">
               <Camera size={19} className="animate-pulse" />
             </div>
-            <div className="text-left text-white">
-              <div className="text-xs font-extrabold leading-tight tracking-tight">
+            <div className="text-left text-white min-w-0">
+              <div className="text-xs font-extrabold leading-tight tracking-tight truncate">
                 Buka Kamera Scanner
               </div>
-              <div className="text-[10px] text-emerald-200 font-medium">
+              <div className="text-[10px] text-emerald-200 font-medium truncate">
                 {isContinuousScan ? 'Mode Berkelanjutan (Scan Terus)' : 'Mode Normal (1x Scan)'}
               </div>
             </div>
           </div>
 
-          {/* Tombol Putih Scan */}
-          <button
-            type="button"
-            onClick={() => {
-              if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-              if (inputRef.current) inputRef.current.blur();
-              setRecentScans([]);
-              setIsCameraOpen(true);
-            }}
-            className="px-4 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-[#2E5844] text-xs font-extrabold rounded-full shadow-md cursor-pointer transition-all"
-          >
+          {/* Badge / Tombol Putih Scan */}
+          <div className="px-4 py-1.5 bg-white group-hover:bg-slate-50 group-active:scale-95 text-[#2E5844] text-xs font-extrabold rounded-full shadow-md transition-all shrink-0">
             Scan
-          </button>
-        </div>
+          </div>
+        </button>
       </div>
 
       {/* ─── Camera Scanner Modal (Continuous & Single Scan Mode) ─────────── */}
