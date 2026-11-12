@@ -1823,6 +1823,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([]);
    const [isGlobalSearching, setIsGlobalSearching] = useState(false);
    const [globalSearchServerFilter, setGlobalSearchServerFilter] = useState<'ALL' | 'SUPABASE_PRIMARY' | 'SUPABASE_ARCHIVE' | 'SUPABASE_OLD' | 'FIRESTORE'>('ALL');
+   const [globalSearchMode, setGlobalSearchMode] = useState<'SINGLE' | 'MASS'>('SINGLE');
+   const [globalMassInput, setGlobalMassInput] = useState('');
+   const [globalMassQueries, setGlobalMassQueries] = useState<string[]>([]);
+   const [globalMassViewStyle, setGlobalMassViewStyle] = useState<'MATRIX' | 'GROUPED'>('MATRIX');
 
      // 3c. Global Search State (Firestore)
      const [globalSearchTermFs, setGlobalSearchTermFs] = useState('');
@@ -2200,7 +2204,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
          setGlobalSearchResults(sortedResults);
          if (sortedResults.length === 0) {
-            alert(`Tidak ditemukan data resi "${term}" di 4 Database (Supabase Utama, Archive, Supabase Lama, maupun Firestore).`);
+            alert(`Tidak ditemukan data resi "${term}" di Database.`);
          }
       } catch (err: any) {
          console.error("Critical Failure in Global Search:", err);
@@ -2208,6 +2212,264 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       } finally {
          setIsGlobalSearching(false);
       }
+   };
+
+   const parseGlobalMassBarcodes = (text: string): string[] => {
+      const seen = new Set<string>();
+      const list: string[] = [];
+      for (const raw of (text || '').split(/[\r\n,;\t\s]+/)) {
+         const clean = raw.trim().toUpperCase();
+         if (clean.length >= 3 && !seen.has(clean)) {
+            seen.add(clean);
+            list.push(clean);
+         }
+      }
+      return list;
+   };
+
+   const handleGlobalMassSearch = async () => {
+      const barcodes = parseGlobalMassBarcodes(globalMassInput);
+      if (barcodes.length === 0) {
+         alert("Masukkan minimal 1 nomor resi/barcode (minimal 3 karakter per resi).");
+         return;
+      }
+      if (barcodes.length > 500) {
+         alert(`Maksimal 500 resi per pencarian massal agar tetap cepat dan rapi (saat ini terdeteksi ${barcodes.length} resi).`);
+         return;
+      }
+
+      setIsGlobalSearching(true);
+      setGlobalMassQueries(barcodes);
+      setGlobalSearchResults([]);
+
+      try {
+         const { supabase, supabaseNew, supabaseSpecialOld } = await import('../services/supabaseClient');
+
+         const chunks: string[][] = [];
+         for (let i = 0; i < barcodes.length; i += 40) {
+            chunks.push(barcodes.slice(i, i + 40));
+         }
+
+         const fetchSbMass = async (client: any, sourceDb: string, label: string, table: string = 'scanned_items', defaultRole?: string) => {
+            if (!client) return [];
+            const rowsAll: any[] = [];
+            // Proses 4 chunk secara paralel agar cepat dan aman
+            for (let c = 0; c < chunks.length; c += 4) {
+               const batchChunks = chunks.slice(c, c + 4);
+               const results = await Promise.all(
+                  batchChunks.map(async (chunk) => {
+                     try {
+                        const lookupVals = Array.from(new Set(chunk.flatMap(b => [b, b.toLowerCase()])));
+                        const queryPromise = client
+                           .from(table)
+                           .select('*')
+                           .in('barcode', lookupVals)
+                           .limit(1000);
+
+                        const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
+                           setTimeout(() => resolve({ data: [], error: null }), 4500)
+                        );
+
+                        const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+                        if (error || !Array.isArray(data)) return [];
+                        return data.map((item: any) => ({
+                           ...item,
+                           barcode: String(item.barcode || '').trim().toUpperCase(),
+                           employee_name: item.employee_name || item.leader_name || item.leader_profile || item.staff || item.user_email || 'LEADER',
+                           role: item.role || defaultRole || (table === 'leader_pending_scans' ? 'LEADER_PENDING' : (table === 'leader_scan_2' ? 'LEADER_2' : 'UNKNOWN')),
+                           source_db: sourceDb,
+                           source_label: label + (table === 'leader_pending_scans' ? ' (Pending Leader)' : (table === 'leader_scan_2' ? ' (Rekap Leader)' : ''))
+                        }));
+                     } catch {
+                        return [];
+                     }
+                  })
+               );
+               results.forEach(arr => rowsAll.push(...arr));
+            }
+            return rowsAll;
+         };
+
+         const [
+            primaryScans,
+            archiveScans,
+            oldScans,
+            primaryLeaderPending,
+            archiveLeaderPending,
+            primaryLeader2,
+            archiveLeader2
+         ] = await Promise.all([
+            fetchSbMass(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'scanned_items'),
+            fetchSbMass(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'scanned_items'),
+            fetchSbMass(supabaseSpecialOld, 'SUPABASE_OLD', 'Supabase Lama', 'scanned_items'),
+            fetchSbMass(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'leader_pending_scans', 'LEADER_PENDING'),
+            fetchSbMass(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'leader_pending_scans', 'LEADER_PENDING'),
+            fetchSbMass(supabase, 'SUPABASE_PRIMARY', 'Supabase VPS', 'leader_scan_2', 'LEADER_2'),
+            fetchSbMass(supabaseNew, 'SUPABASE_ARCHIVE', 'Supabase Archive', 'leader_scan_2', 'LEADER_2')
+         ]);
+
+         const allMerged = [
+            ...primaryScans,
+            ...archiveScans,
+            ...oldScans,
+            ...primaryLeaderPending,
+            ...archiveLeaderPending,
+            ...primaryLeader2,
+            ...archiveLeader2
+         ];
+
+         const uniqueMap = new Map<string, any>();
+         allMerged.forEach(item => {
+            const key = `${item.source_db}_${item.id || `${item.barcode}_${item.role}_${item.timestamp}_${item.employee_name}`}`;
+            if (!uniqueMap.has(key)) {
+               uniqueMap.set(key, item);
+            }
+         });
+
+         const sortedResults = Array.from(uniqueMap.values()).sort((a: any, b: any) => {
+            const getT = (x: any) => x.timestamp ? new Date(x.timestamp).getTime() : 0;
+            return getT(b) - getT(a);
+         });
+
+         setGlobalSearchResults(sortedResults);
+      } catch (err: any) {
+         console.error("Critical Failure in Global Mass Search:", err);
+         alert("Terjadi kesalahan saat pencarian massal: " + err.message);
+      } finally {
+         setIsGlobalSearching(false);
+      }
+   };
+
+   const buildMassSearchSummaryRows = (queries: string[], filteredItems: any[]) => {
+      const groupedByBarcode = new Map<string, any[]>();
+      for (const item of filteredItems) {
+         const code = String(item.barcode || '').trim().toUpperCase();
+         if (!groupedByBarcode.has(code)) groupedByBarcode.set(code, []);
+         groupedByBarcode.get(code)!.push(item);
+      }
+
+      const fmtRoleEntry = (entries: any[], includeRole = false) => {
+         if (!entries || entries.length === 0) return '-';
+         const seen = new Set<string>();
+         const parts: string[] = [];
+         for (const e of entries) {
+            const name = String(e.employee_name || e.staff || e.user_email || '-').trim();
+            const dt = e.timestamp ? new Date(e.timestamp).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+            const tm = showSearchTimestampTime && e.timestamp ? ` ${new Date(e.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : '';
+            const rolePrefix = includeRole && e.role ? `[${e.role}] ` : '';
+            const label = `${rolePrefix}${name}${dt ? ` (${dt}${tm})` : ''}`;
+            if (!seen.has(label)) {
+               seen.add(label);
+               parts.push(label);
+            }
+         }
+         return parts.join(' | ');
+      };
+
+      return queries.map((barcode, idx) => {
+         const items = groupedByBarcode.get(barcode) || [];
+         const pickerItems = items.filter(i => ['PICKER', 'PICKER_2'].includes(String(i.role || '').toUpperCase()));
+         const checkerItems = items.filter(i => String(i.role || '').toUpperCase() === 'CHECKER');
+         const packingItems = items.filter(i => ['PACKING', 'PACKING_2'].includes(String(i.role || '').toUpperCase()));
+         const logistikItems = items.filter(i => ['SORTIR', 'SORTIR_BATCH', 'LOGISTIK', 'OJOL', 'EKSPEDISI', 'RETUR'].includes(String(i.role || '').toUpperCase()));
+         const leaderItems = items.filter(i => !['PICKER', 'PICKER_2', 'CHECKER', 'PACKING', 'PACKING_2', 'SORTIR', 'SORTIR_BATCH', 'LOGISTIK', 'OJOL', 'EKSPEDISI', 'RETUR'].includes(String(i.role || '').toUpperCase()));
+         const servers = Array.from(new Set(items.map(i =>
+            i.source_db === 'SUPABASE_PRIMARY' ? 'Supabase VPS' :
+            i.source_db === 'SUPABASE_ARCHIVE' ? 'Archive' :
+            i.source_db === 'SUPABASE_OLD' ? 'Lama' : 'Firestore'
+         )));
+
+         return {
+            no: idx + 1,
+            barcode,
+            found: items.length > 0,
+            totalRecords: items.length,
+            items,
+            pickerItems,
+            checkerItems,
+            packingItems,
+            logistikItems,
+            leaderItems,
+            pickerText: fmtRoleEntry(pickerItems),
+            checkerText: fmtRoleEntry(checkerItems),
+            packingText: fmtRoleEntry(packingItems),
+            logistikText: fmtRoleEntry(logistikItems, true),
+            leaderText: fmtRoleEntry(leaderItems, true),
+            servers,
+            serverText: servers.length > 0 ? servers.join(', ') : '-'
+         };
+      });
+   };
+
+   const handleCopyGlobalMassTsv = (rows: ReturnType<typeof buildMassSearchSummaryRows>) => {
+      if (!rows || rows.length === 0) return;
+      const header = ['No', 'Nomor Resi', 'Status', 'Picker', 'Checker', 'Packing', 'Sortir/Logistik/Ojol', 'Leader/Gudang', 'Server'].join('\t');
+      const body = rows.map(r => [
+         r.no,
+         r.barcode,
+         r.found ? `DITEMUKAN (${r.totalRecords})` : 'BELUM ADA',
+         r.pickerText,
+         r.checkerText,
+         r.packingText,
+         r.logistikText,
+         r.leaderText,
+         r.serverText
+      ].join('\t'));
+      navigator.clipboard.writeText([header, ...body].join('\n'));
+      showToast(`✓ ${rows.length} baris hasil pencarian massal disalin (siap paste ke Excel)!`, 'success');
+   };
+
+   const handleExportGlobalMassExcel = (rows: ReturnType<typeof buildMassSearchSummaryRows>, filteredItems: any[]) => {
+      if (!rows || rows.length === 0) return;
+      const summarySheetData = rows.map(r => ({
+         'No': r.no,
+         'Nomor Resi': r.barcode,
+         'Status': r.found ? 'DITEMUKAN' : 'BELUM ADA',
+         'Jumlah Riwayat': r.totalRecords,
+         'Picker': r.pickerText,
+         'Checker': r.checkerText,
+         'Packing': r.packingText,
+         'Sortir / Logistik / Ojol': r.logistikText,
+         'Leader / Gudang': r.leaderText,
+         'Sumber Server': r.serverText
+      }));
+
+      const detailSheetData: any[] = [];
+      for (const r of rows) {
+         if (r.items.length === 0) {
+            detailSheetData.push({
+               'No Resi': r.barcode,
+               'Sumber Server': '-',
+               'Tanggal': '-',
+               'Waktu': '-',
+               'Staff / Employee': '-',
+               'Role': '-',
+               'Status': 'TIDAK DITEMUKAN'
+            });
+         } else {
+            for (const item of r.items) {
+               const d = item.timestamp ? new Date(item.timestamp) : null;
+               detailSheetData.push({
+                  'No Resi': r.barcode,
+                  'Sumber Server': item.source_db === 'SUPABASE_PRIMARY' ? 'Supabase VPS' : item.source_db === 'SUPABASE_ARCHIVE' ? 'Supabase Archive' : 'Supabase Lama',
+                  'Tanggal': d ? d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-',
+                  'Waktu': d ? d.toLocaleTimeString('id-ID') : '-',
+                  'Staff / Employee': item.employee_name || item.staff || item.user_email || '-',
+                  'Role': item.role || 'UNKNOWN',
+                  'Status': item.status || 'COMPLETED'
+               });
+            }
+         }
+      }
+
+      const wb = XLSX.utils.book_new();
+      const ws1 = XLSX.utils.json_to_sheet(summarySheetData);
+      const ws2 = XLSX.utils.json_to_sheet(detailSheetData);
+      XLSX.utils.book_append_sheet(wb, ws1, 'Ringkasan Per Resi');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Detail Riwayat Scan');
+      const nowStr = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `Search_Data_Massal_${nowStr}.xlsx`);
+      showToast('✓ File Excel Search Data Massal berhasil didownload!', 'success');
    };
    const handleSaveSupabaseConfig = async () => {
       setIsSavingConfig(true);
@@ -2868,8 +3130,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       alert("Sinkronisasi dari Firestore dinonaktifkan karena seluruh sistem sudah beralih 100% ke Supabase VPS.");
    };
 
+   const handleSyncFirestoreToSupabaseByDayRange = async () => {
+      alert("Sinkronisasi rentang per hari dari Firestore dinonaktifkan karena seluruh sistem sudah beralih 100% ke Supabase VPS.");
+   };
+
    const handleSyncSupabaseToFirestore = async () => {
       alert("Sinkronisasi ke Firestore dinonaktifkan karena seluruh sistem sudah beralih 100% ke Supabase VPS.");
+   };
+
+   const handleSyncSupabaseToFirestoreByDayRange = async () => {
+      alert("Sinkronisasi rentang per hari ke Firestore dinonaktifkan karena seluruh sistem sudah beralih 100% ke Supabase VPS.");
    };
 
    const [selectedFailedScanIds, setSelectedFailedScanIds] = useState<string[]>([]);
@@ -4456,7 +4726,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (activeView === 'ADMIN_MANAGEMENT') fetchAdmins();
       if (activeView === 'ACCESS') fetchBlockedStatus();
       if (activeView === 'ACCESS') fetchBlockedStatus();
-      if (activeView === 'CANCEL_DATA' || ((activeView === 'BATCH_DATA' || activeView === 'BATCH_DATA_2' || activeView === 'BATCH_DATA_3') && (activeBatchTab === 'ITEMS' || activeBatchTab === 'AUDIT_KOMPARASI'))) fetchCancelledOrders();
+      if (activeView === 'CANCEL_DATA') fetchCancelledOrders(true);
+      else if ((activeView === 'BATCH_DATA' || activeView === 'BATCH_DATA_2' || activeView === 'BATCH_DATA_3') && (activeBatchTab === 'ITEMS' || activeBatchTab === 'AUDIT_KOMPARASI')) fetchCancelledOrders(false);
       if (activeView === 'FAILED_SCANS') fetchFailedScans();
       if (activeView === 'FAKE_REPORT') fetchFakeReports();
       if (activeView === 'SYMBOLS') fetchForbiddenSymbols();
@@ -4500,24 +4771,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
 
             const newRec = payload.new as any;
-            const trk = (newRec?.tracking_no || '').trim().toUpperCase();
-            if (trk && trk.length >= 4) {
-               try {
-                  const { error: cancelInsErr } = await supabase
-                      .from('cancelled_orders')
-                      .upsert([{
-                         barcode: trk,
-                         cancelled_by: 'Ginee OMS Realtime',
-                         reason: newRec.reason || 'Dibatalkan di Marketplace / Ginee OMS',
-                         cancelled_at: newRec.cancelled_at || new Date().toISOString(),
-                         is_active: true
-                      }], { onConflict: 'barcode', ignoreDuplicates: true });
-
-                   if (!cancelInsErr && activeView === 'CANCEL_DATA') {
-                      fetchCancelledOrders(false);
-                   }
-               } catch (err) {
-                  console.warn('[AdminDashboard] Realtime Ginee insert listener error:', err);
+            const trk = (newRec?.tracking_no || newRec?.barcode || '').trim().toUpperCase();
+            if (trk && isValidAwbFormat(trk) && trk !== String(newRec?.order_sn || '').trim().toUpperCase() && trk !== String(newRec?.channel_order_sn || '').trim().toUpperCase()) {
+               if (activeView === 'CANCEL_DATA') {
+                  fetchCancelledOrders(false);
                }
             }
          })
@@ -16311,55 +16568,164 @@ if (filterPackingShift !== 'ALL') {
                                        </div>
                                     </div>
 
-                                    {/* Search Controls Form */}
-                                    <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 w-full">
-                                       <div className="relative flex-1 group w-full">
-                                          <Search size={18} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-                                          <input
-                                             type="text"
-                                             value={globalSearchTerm}
-                                             onChange={(e) => setGlobalSearchTerm(e.target.value)}
-                                             onKeyDown={(e) => e.key === 'Enter' && handleGlobalSearch()}
-                                             placeholder="Ketik no resi / barcode (tekan Enter untuk mencari)..."
-                                             className="w-full h-11 sm:h-12 pl-10 sm:pl-12 pr-10 sm:pr-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm sm:text-base font-mono placeholder:font-sans transition-all shadow-2xs"
-                                             autoFocus
-                                          />
-                                          {globalSearchTerm && (
-                                             <button
-                                                onClick={() => {
-                                                   setGlobalSearchTerm('');
+                                    {/* Mode Switcher: Single vs Pencarian Massal */}
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                       <div className="inline-flex items-center bg-gray-100 dark:bg-gray-900/70 p-1 rounded-xl border border-gray-200 dark:border-gray-700 gap-1">
+                                          <button
+                                             type="button"
+                                             onClick={() => {
+                                                if (globalSearchMode !== 'SINGLE') {
+                                                   setGlobalSearchMode('SINGLE');
                                                    setGlobalSearchResults([]);
-                                                }}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-all cursor-pointer"
-                                                title="Clear Search"
-                                             >
-                                                <X size={18} />
-                                             </button>
-                                          )}
+                                                }
+                                             }}
+                                             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                globalSearchMode === 'SINGLE'
+                                                   ? 'bg-white dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                                                   : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                                             }`}
+                                          >
+                                             <Search size={13} />
+                                             <span>Pencarian Satuan</span>
+                                          </button>
+                                          <button
+                                             type="button"
+                                             onClick={() => {
+                                                if (globalSearchMode !== 'MASS') {
+                                                   setGlobalSearchMode('MASS');
+                                                   setGlobalSearchResults([]);
+                                                }
+                                             }}
+                                             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                globalSearchMode === 'MASS'
+                                                   ? 'bg-indigo-600 text-white shadow-sm'
+                                                   : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                                             }`}
+                                          >
+                                             <Layers size={13} />
+                                             <span>Pencarian Massal (Banyak Resi)</span>
+                                             {parseGlobalMassBarcodes(globalMassInput).length > 0 && (
+                                                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                                                   globalSearchMode === 'MASS' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                                                }`}>
+                                                   {parseGlobalMassBarcodes(globalMassInput).length}
+                                                </span>
+                                             )}
+                                          </button>
                                        </div>
 
-                                       <select
-                                          value={globalSearchServerFilter}
-                                          onChange={(e) => setGlobalSearchServerFilter(e.target.value as any)}
-                                          className="h-11 sm:h-12 px-3.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all shrink-0 cursor-pointer shadow-2xs"
-                                          title="Filter Sumber Server Database"
-                                       >
-                                          <option value="ALL">Semua Server Database (Otomatis)</option>
-                                          <option value="SUPABASE_PRIMARY">Supabase VPS (103.52.114.209)</option>
-                                          <option value="SUPABASE_ARCHIVE">Supabase Archive</option>
-                                          <option value="SUPABASE_OLD">Supabase Lama</option>
-                                          <option value="FIRESTORE">Firestore</option>
-                                       </select>
-
-                                       <button
-                                          onClick={handleGlobalSearch}
-                                          disabled={isGlobalSearching || !globalSearchTerm.trim()}
-                                          className="h-11 sm:h-12 px-6 sm:px-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 transition-all active:scale-95 w-full sm:w-auto text-sm sm:text-base shrink-0 cursor-pointer"
-                                       >
-                                          {isGlobalSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                                          Cari Data
-                                       </button>
+                                       {globalSearchMode === 'MASS' && (
+                                          <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">
+                                             Hasil otomatis dikelompokkan rapi per nomor resi &amp; per role (tidak tercampur).
+                                          </span>
+                                       )}
                                     </div>
+
+                                    {/* Search Controls Form */}
+                                    {globalSearchMode === 'SINGLE' ? (
+                                       <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 w-full">
+                                          <div className="relative flex-1 group w-full">
+                                             <Search size={18} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+                                             <input
+                                                type="text"
+                                                value={globalSearchTerm}
+                                                onChange={(e) => setGlobalSearchTerm(e.target.value)}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleGlobalSearch()}
+                                                placeholder="Ketik no resi / barcode (tekan Enter untuk mencari)..."
+                                                className="w-full h-11 sm:h-12 pl-10 sm:pl-12 pr-10 sm:pr-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm sm:text-base font-mono placeholder:font-sans transition-all shadow-2xs"
+                                                autoFocus
+                                             />
+                                             {globalSearchTerm && (
+                                                <button
+                                                   onClick={() => {
+                                                      setGlobalSearchTerm('');
+                                                      setGlobalSearchResults([]);
+                                                   }}
+                                                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-all cursor-pointer"
+                                                   title="Clear Search"
+                                                >
+                                                   <X size={18} />
+                                                </button>
+                                             )}
+                                          </div>
+
+                                          <select
+                                             value={globalSearchServerFilter}
+                                             onChange={(e) => setGlobalSearchServerFilter(e.target.value as any)}
+                                             className="h-11 sm:h-12 px-3.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all shrink-0 cursor-pointer shadow-2xs"
+                                             title="Filter Sumber Server Database"
+                                          >
+                                             <option value="ALL">Semua Server Database (Otomatis)</option>
+                                             <option value="SUPABASE_PRIMARY">Supabase VPS (103.52.114.209)</option>
+                                             <option value="SUPABASE_ARCHIVE">Supabase Archive</option>
+                                             <option value="SUPABASE_OLD">Supabase Lama</option>
+                                             <option value="FIRESTORE">Firestore</option>
+                                          </select>
+
+                                          <button
+                                             onClick={handleGlobalSearch}
+                                             disabled={isGlobalSearching || !globalSearchTerm.trim()}
+                                             className="h-11 sm:h-12 px-6 sm:px-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 transition-all active:scale-95 w-full sm:w-auto text-sm sm:text-base shrink-0 cursor-pointer"
+                                          >
+                                             {isGlobalSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                                             Cari Data
+                                          </button>
+                                       </div>
+                                    ) : (
+                                       <div className="flex flex-col gap-3 w-full">
+                                          <div className="relative w-full">
+                                             <textarea
+                                                value={globalMassInput}
+                                                onChange={(e) => setGlobalMassInput(e.target.value)}
+                                                placeholder="Paste banyak nomor resi di sini (1 resi per baris, atau pisah koma / spasi, maks. 500 resi)...&#10;Contoh:&#10;SPXID06581228468B&#10;JY2241264400&#10;006922634762"
+                                                rows={4}
+                                                className="w-full p-3.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm font-mono placeholder:font-sans transition-all shadow-2xs resize-y"
+                                             />
+                                             {globalMassInput && (
+                                                <button
+                                                   type="button"
+                                                   onClick={() => {
+                                                      setGlobalMassInput('');
+                                                      setGlobalMassQueries([]);
+                                                      setGlobalSearchResults([]);
+                                                   }}
+                                                   className="absolute right-3 top-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-all cursor-pointer"
+                                                   title="Bersihkan input"
+                                                >
+                                                   <X size={16} />
+                                                </button>
+                                             )}
+                                          </div>
+
+                                          <div className="flex flex-wrap items-center justify-between gap-2.5">
+                                             <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                                <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-bold font-mono">
+                                                   {parseGlobalMassBarcodes(globalMassInput).length} Resi Unik Terdeteksi
+                                                </span>
+                                                <select
+                                                   value={globalSearchServerFilter}
+                                                   onChange={(e) => setGlobalSearchServerFilter(e.target.value as any)}
+                                                   className="h-9 px-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                                                >
+                                                   <option value="ALL">Semua Server Database</option>
+                                                   <option value="SUPABASE_PRIMARY">Supabase VPS</option>
+                                                   <option value="SUPABASE_ARCHIVE">Supabase Archive</option>
+                                                   <option value="SUPABASE_OLD">Supabase Lama</option>
+                                                </select>
+                                             </div>
+
+                                             <button
+                                                type="button"
+                                                onClick={handleGlobalMassSearch}
+                                                disabled={isGlobalSearching || parseGlobalMassBarcodes(globalMassInput).length === 0}
+                                                className="h-10 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm cursor-pointer"
+                                             >
+                                                {isGlobalSearching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                                                <span>Cari Massal ({parseGlobalMassBarcodes(globalMassInput).length} Resi)</span>
+                                             </button>
+                                          </div>
+                                       </div>
+                                    )}
                                  </div>
                               </div>
 
@@ -16368,8 +16734,276 @@ if (filterPackingShift !== 'ALL') {
                                  {isGlobalSearching ? (
                                     <div className="flex flex-col items-center justify-center p-12 sm:p-20 gap-4 min-h-[250px] my-auto">
                                        <Loader2 size={36} className="animate-spin text-indigo-500" />
-                                       <p className="text-xs sm:text-sm text-gray-500 font-medium">Mencari data resi di 4 Server Database secara bersamaan...</p>
+                                       <p className="text-xs sm:text-sm text-gray-500 font-medium">Mencari data resi di Server Database secara bersamaan...</p>
                                     </div>
+                                 ) : globalSearchMode === 'MASS' && globalMassQueries.length > 0 ? (
+                                    (() => {
+                                       const filteredList = globalSearchResults.filter(item => {
+                                          if (hideExpiredResi && (item.employee_name || '').toUpperCase().includes('RESI KEDALUWARSA')) {
+                                             return false;
+                                          }
+                                          if (globalSearchServerFilter === 'ALL') return true;
+                                          return item.source_db === globalSearchServerFilter;
+                                       });
+
+                                       const summaryRows = buildMassSearchSummaryRows(globalMassQueries, filteredList);
+                                       const foundRows = summaryRows.filter(r => r.found);
+                                       const missingRows = summaryRows.filter(r => !r.found);
+
+                                       return (
+                                          <div className="flex-1 flex flex-col">
+                                             {/* Mass Summary Action Bar */}
+                                             <div className="px-4 py-3 bg-indigo-50/80 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/50 flex flex-wrap items-center justify-between gap-2.5 text-xs font-bold shrink-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                   <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200">
+                                                      Dicari: <strong className="font-mono text-indigo-600 dark:text-indigo-400">{summaryRows.length}</strong> Resi
+                                                   </span>
+                                                   <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300">
+                                                      Ditemukan: <strong className="font-mono">{foundRows.length}</strong>
+                                                   </span>
+                                                   <span className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300">
+                                                      Belum Ada: <strong className="font-mono">{missingRows.length}</strong>
+                                                   </span>
+                                                </div>
+
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                   {/* View Style Switcher: Matrix vs Grouped */}
+                                                   <div className="inline-flex bg-white dark:bg-gray-800 p-0.5 rounded-lg border border-gray-200 dark:border-gray-700">
+                                                      <button
+                                                         type="button"
+                                                         onClick={() => setGlobalMassViewStyle('MATRIX')}
+                                                         className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                                                            globalMassViewStyle === 'MATRIX'
+                                                               ? 'bg-indigo-600 text-white'
+                                                               : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                                                         }`}
+                                                      >
+                                                         Tabel Rapi Per Resi
+                                                      </button>
+                                                      <button
+                                                         type="button"
+                                                         onClick={() => setGlobalMassViewStyle('GROUPED')}
+                                                         className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                                                            globalMassViewStyle === 'GROUPED'
+                                                               ? 'bg-indigo-600 text-white'
+                                                               : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                                                         }`}
+                                                      >
+                                                         Detail Terkelompok
+                                                      </button>
+                                                   </div>
+
+                                                   {missingRows.length > 0 && (
+                                                      <button
+                                                         type="button"
+                                                         onClick={() => {
+                                                            navigator.clipboard.writeText(missingRows.map(m => m.barcode).join('\n'));
+                                                            showToast(`✓ ${missingRows.length} resi belum ada disalin!`, 'success');
+                                                         }}
+                                                         className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                                      >
+                                                         <Copy size={12} />
+                                                         <span>Salin Belum Ada ({missingRows.length})</span>
+                                                      </button>
+                                                   )}
+
+                                                   <button
+                                                      type="button"
+                                                      onClick={() => handleCopyGlobalMassTsv(summaryRows)}
+                                                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                                   >
+                                                      <Copy size={12} />
+                                                      <span>Salin Tabel Rapi</span>
+                                                   </button>
+
+                                                   <button
+                                                      type="button"
+                                                      onClick={() => handleExportGlobalMassExcel(summaryRows, filteredList)}
+                                                      className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer shadow-2xs"
+                                                   >
+                                                      <FileSpreadsheet size={13} />
+                                                      <span>Export Excel</span>
+                                                   </button>
+                                                </div>
+                                             </div>
+
+                                             {globalMassViewStyle === 'MATRIX' ? (
+                                                /* TABEL RAPI 1 BARIS = 1 RESI (KOLOM ROLE TERPISAH, TIDAK TERCAMPUR) */
+                                                <div className="flex-1 overflow-auto">
+                                                   <table className="w-full text-left border-collapse text-xs">
+                                                      <thead className="bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
+                                                         <tr>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-gray-500 uppercase text-center w-12">No</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-gray-500 uppercase">Nomor Resi</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-gray-500 uppercase text-center">Status</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-emerald-700 dark:text-emerald-400 uppercase">Picker</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-blue-700 dark:text-blue-400 uppercase">Checker</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-purple-700 dark:text-purple-400 uppercase">Packing</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-amber-700 dark:text-amber-400 uppercase">Sortir / Logistik / Ojol</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-gray-600 dark:text-gray-300 uppercase">Leader / Gudang</th>
+                                                            <th className="px-3 py-3 text-[11px] font-extrabold text-gray-500 uppercase text-center">Server</th>
+                                                         </tr>
+                                                      </thead>
+                                                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                                                         {summaryRows.map((row) => (
+                                                            <tr
+                                                               key={`mass_matrix_${row.barcode}`}
+                                                               className={row.found ? 'hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 align-top' : 'bg-rose-50/40 dark:bg-rose-950/10 align-top'}
+                                                            >
+                                                               <td className="px-3 py-3 text-center font-mono text-gray-400 font-bold">{row.no}</td>
+                                                               <td className="px-3 py-3 whitespace-nowrap">
+                                                                  <div className="flex items-center gap-1.5">
+                                                                     <span className="font-mono font-bold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 select-all">
+                                                                        {row.barcode}
+                                                                     </span>
+                                                                     <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                           navigator.clipboard.writeText(row.barcode);
+                                                                           showToast(`Barcode ${row.barcode} disalin!`, 'success');
+                                                                        }}
+                                                                        className="text-gray-400 hover:text-indigo-600 p-0.5 cursor-pointer"
+                                                                     >
+                                                                        <Copy size={12} />
+                                                                     </button>
+                                                                  </div>
+                                                               </td>
+                                                               <td className="px-3 py-3 text-center whitespace-nowrap">
+                                                                  {row.found ? (
+                                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                                        <CheckCircle size={11} /> DITEMUKAN ({row.totalRecords})
+                                                                     </span>
+                                                                  ) : (
+                                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                                                        <XCircle size={11} /> BELUM ADA
+                                                                     </span>
+                                                                  )}
+                                                               </td>
+                                                               {[
+                                                                  { list: row.pickerItems, showRole: false },
+                                                                  { list: row.checkerItems, showRole: false },
+                                                                  { list: row.packingItems, showRole: false },
+                                                                  { list: row.logistikItems, showRole: true },
+                                                                  { list: row.leaderItems, showRole: true },
+                                                               ].map((col, cIdx) => (
+                                                                  <td key={`cell_${row.barcode}_${cIdx}`} className="px-3 py-2.5 min-w-[140px]">
+                                                                     {col.list.length === 0 ? (
+                                                                        <span className="text-gray-300 dark:text-gray-600 font-mono">-</span>
+                                                                     ) : (
+                                                                        <div className="flex flex-col gap-1">
+                                                                           {col.list.map((entry, eIdx) => (
+                                                                              <div key={`entry_${row.barcode}_${cIdx}_${eIdx}`} className="px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-900/70 border border-gray-200/70 dark:border-gray-700/70">
+                                                                                 <div className="font-bold text-gray-800 dark:text-gray-100 text-[11px] leading-tight">
+                                                                                    {col.showRole && entry.role ? (
+                                                                                       <span className="text-[9.5px] font-mono px-1 py-0.2 mr-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                                                                                          {entry.role}
+                                                                                       </span>
+                                                                                    ) : null}
+                                                                                    {entry.employee_name || entry.staff || '-'}
+                                                                                 </div>
+                                                                                 <div className="text-[10px] font-mono text-gray-400 mt-0.5">
+                                                                                    {entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                                                                                    {showSearchTimestampTime && entry.timestamp ? ` ${new Date(entry.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                                                                 </div>
+                                                                              </div>
+                                                                           ))}
+                                                                        </div>
+                                                                     )}
+                                                                  </td>
+                                                               ))}
+                                                               <td className="px-3 py-3 text-center whitespace-nowrap">
+                                                                  {row.servers.length === 0 ? (
+                                                                     <span className="text-gray-300 dark:text-gray-600">-</span>
+                                                                  ) : (
+                                                                     <div className="flex flex-col items-center gap-1">
+                                                                        {row.servers.map(srv => (
+                                                                           <span key={`${row.barcode}_${srv}`} className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                                                              {srv}
+                                                                           </span>
+                                                                        ))}
+                                                                     </div>
+                                                                  )}
+                                                               </td>
+                                                            </tr>
+                                                         ))}
+                                                      </tbody>
+                                                   </table>
+                                                </div>
+                                             ) : (
+                                                /* DETAIL TERKELOMPOK PER RESI (TIDAK TERCAMPUR) */
+                                                <div className="flex-1 overflow-auto p-4 space-y-3.5">
+                                                   {summaryRows.map((row) => (
+                                                      <div
+                                                         key={`mass_grp_${row.barcode}`}
+                                                         className={`rounded-2xl border overflow-hidden shadow-2xs ${
+                                                            row.found
+                                                               ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
+                                                               : 'border-rose-200 dark:border-rose-900 bg-rose-50/40 dark:bg-rose-950/20'
+                                                         }`}
+                                                      >
+                                                         <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900/70 border-b border-gray-200/80 dark:border-gray-700/80 flex flex-wrap items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-2">
+                                                               <span className="text-xs font-mono font-bold text-gray-400">#{row.no}</span>
+                                                               <span className="font-mono font-bold text-sm text-gray-900 dark:text-white select-all">{row.barcode}</span>
+                                                               <button
+                                                                  type="button"
+                                                                  onClick={() => {
+                                                                     navigator.clipboard.writeText(row.barcode);
+                                                                     showToast(`Barcode ${row.barcode} disalin!`, 'success');
+                                                                  }}
+                                                                  className="text-gray-400 hover:text-indigo-600 p-1 cursor-pointer"
+                                                               >
+                                                                  <Copy size={12} />
+                                                               </button>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                               {row.found ? (
+                                                                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                                                     {row.totalRecords} Riwayat Scan
+                                                                  </span>
+                                                               ) : (
+                                                                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                                                                     Tidak Ditemukan
+                                                                  </span>
+                                                               )}
+                                                            </div>
+                                                         </div>
+
+                                                         {row.found && (
+                                                            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                                                               {row.items.map((item, iIdx) => (
+                                                                  <div key={`grp_item_${row.barcode}_${iIdx}`} className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                                                     <div className="flex items-center gap-2.5">
+                                                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600">
+                                                                           {item.role || 'UNKNOWN'}
+                                                                        </span>
+                                                                        <span className="font-bold text-gray-900 dark:text-white">{item.employee_name || item.staff || '-'}</span>
+                                                                        {item.destination && (
+                                                                           <span className="text-gray-400 flex items-center gap-1 text-[11px]">
+                                                                              <MapPin size={10} /> {item.destination}
+                                                                           </span>
+                                                                        )}
+                                                                     </div>
+                                                                     <div className="flex items-center gap-2.5 font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                                                                        <span className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-sans font-bold text-[10px]">
+                                                                           {item.source_db === 'SUPABASE_PRIMARY' ? 'VPS' : item.source_db === 'SUPABASE_ARCHIVE' ? 'Archive' : 'Lama'}
+                                                                        </span>
+                                                                        <span>
+                                                                           {item.timestamp ? new Date(item.timestamp).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
+                                                                           {showSearchTimestampTime && item.timestamp ? ` ${new Date(item.timestamp).toLocaleTimeString('id-ID')}` : ''}
+                                                                        </span>
+                                                                     </div>
+                                                                  </div>
+                                                               ))}
+                                                            </div>
+                                                         )}
+                                                      </div>
+                                                   ))}
+                                                </div>
+                                             )}
+                                          </div>
+                                       );
+                                    })()
                                  ) : globalSearchResults.length > 0 ? (
                                     (() => {
                                        const filteredList = globalSearchResults.filter(item => {
@@ -16457,7 +17091,7 @@ if (filterPackingShift !== 'ALL') {
                                                    </thead>
                                                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                                                       {filteredList.map((item, idx) => (
-                                                         <tr key={item.id || `${item.barcode}_${idx}`} className="hover:bg-indigo-50/40 dark:hover:bg-indigo-900/10 transition-colors">
+                                                         <tr key={`${item.source_db || 'db'}_${item.id || item.barcode}_${idx}`} className="hover:bg-indigo-50/40 dark:hover:bg-indigo-900/10 transition-colors">
                                                             <td className="px-4 py-3.5">
                                                                <span className="font-mono font-bold text-xs sm:text-sm text-gray-900 dark:text-gray-100 tracking-wide select-all bg-gray-100/80 dark:bg-gray-800 px-2.5 py-1 rounded-lg border border-gray-200/70 dark:border-gray-700/70 inline-block shadow-2xs">
                                                                   {item.barcode}
@@ -16531,8 +17165,9 @@ if (filterPackingShift !== 'ALL') {
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 p-3.5 sm:p-4 pb-20">
                                                    {filteredList.map((item, index) => (
                                                       <GlobalSearchCard
-                                                         key={item.id || `${item.barcode}_${index}`}
+                                                         key={`${item.source_db || 'db'}_${item.id || item.barcode}_${index}`}
                                                          item={item}
+                                                         showTime={showSearchTimestampTime}
                                                          onCopyBarcode={(b) => showToast(`Barcode ${b} disalin!`, 'success')}
                                                       />
                                                    ))}
@@ -16548,7 +17183,11 @@ if (filterPackingShift !== 'ALL') {
                                  ) : (
                                     <div className="flex flex-col items-center justify-center p-12 sm:p-20 text-gray-400 min-h-[250px] my-auto">
                                        <Search size={44} className="mb-3 opacity-20 sm:w-12 sm:h-12" />
-                                       <p className="text-xs sm:text-sm text-center">Masukkan nomor resi pada kolom pencarian di atas untuk mencari di 4 Database sekaligus.</p>
+                                       <p className="text-xs sm:text-sm text-center">
+                                          {globalSearchMode === 'MASS'
+                                             ? 'Paste daftar nomor resi pada kolom di atas, lalu klik "Cari Massal" untuk melihat hasil rapi per resi.'
+                                             : 'Masukkan nomor resi pada kolom pencarian di atas untuk mencari di Database secara bersamaan.'}
+                                       </p>
                                     </div>
                                  )}
                               </div>
@@ -24618,9 +25257,8 @@ LXAD-1234567890`}
                                           </div>
                                        </div>
 
-                                       {/* Ginee Sync ON/OFF Control & Manual Sync (Hanya muncul jika devmodenew) */}
-                                       {isDevModeNew && (
-                                          <div className="flex items-center gap-2 flex-wrap">
+                                       {/* Ginee Sync ON/OFF Control & Manual Sync */}
+                                       <div className="flex items-center gap-2 flex-wrap">
                                           {/* Status Badge */}
                                           <div className={`flex items-center gap-2 px-3.5 h-10 rounded-xl text-xs font-bold border shadow-2xs select-none ${isGineeSyncActive ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'}`}>
                                              <div className={`w-2.5 h-2.5 rounded-full ${isGineeSyncActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
@@ -24653,7 +25291,6 @@ LXAD-1234567890`}
                                              <span>{isSyncingGineeCancel ? 'Menyinkronkan...' : 'Sinkron Manual'}</span>
                                           </button>
                                        </div>
-                                       )}
                                     </div>
                                  </div>
                               </div>

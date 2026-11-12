@@ -161,6 +161,45 @@ export async function saveGineeOrdersToSupabase(
       const chunkOrderIds = chunk.map(o => (o.orderSn || '').trim().toUpperCase()).filter(Boolean);
       const chunkChannelSns = chunk.map(o => (o.channelOrderSn || '').trim().toUpperCase()).filter(Boolean);
       const existingTrackingMap = new Map<string, string>();
+      const printedBatchAwbMap = new Map<string, Set<string>>();
+
+      // Pra-pengecekan khusus pesanan CANCELLED di chunk ini terhadap tabel batch_items (Label telah dicetak)
+      const cancelledLookupIds = Array.from(
+        new Set(
+          chunk
+            .filter(o => isOrderCancelled(o))
+            .flatMap(o => [
+              (o.channelOrderSn || '').trim().toUpperCase(),
+              (o.orderSn || '').trim().toUpperCase(),
+            ])
+            .filter(Boolean)
+        )
+      );
+
+      if (cancelledLookupIds.length > 0) {
+        try {
+          for (let q = 0; q < cancelledLookupIds.length; q += 80) {
+            const subIds = cancelledLookupIds.slice(q, q + 80);
+            const { data: batchRows } = await mainSupabase
+              .from('batch_items')
+              .select('barcode, order_id')
+              .in('order_id', subIds);
+
+            if (Array.isArray(batchRows)) {
+              batchRows.forEach((b: any) => {
+                const oid = String(b.order_id || '').trim().toUpperCase();
+                const awb = String(b.barcode || '').trim().toUpperCase();
+                if (oid && awb && isValidAwbFormat(awb) && awb !== oid) {
+                  if (!printedBatchAwbMap.has(oid)) printedBatchAwbMap.set(oid, new Set());
+                  printedBatchAwbMap.get(oid)!.add(awb);
+                }
+              });
+            }
+          }
+        } catch (batchErr) {
+          console.warn('[Supabase Ginee] Warning lookup batch_items for cancelled orders:', batchErr);
+        }
+      }
 
       if (gineeOrdersTableExists && (chunkOrderIds.length > 0 || chunkChannelSns.length > 0)) {
         try {
@@ -176,9 +215,9 @@ export async function saveGineeOrdersToSupabase(
             if (Array.isArray(dbRows)) {
               dbRows.forEach((r: any) => {
                 const trk = (r.tracking_no || '').trim().toUpperCase();
-                if (trk && trk !== '-') {
-                  if (r.order_id) existingTrackingMap.set(r.order_id.toUpperCase(), trk);
-                  if (r.channel_order_sn) existingTrackingMap.set(r.channel_order_sn.toUpperCase(), trk);
+                if (trk && trk !== '-' && isValidAwbFormat(trk)) {
+                  if (r.order_id && trk !== r.order_id.toUpperCase()) existingTrackingMap.set(r.order_id.toUpperCase(), trk);
+                  if (r.channel_order_sn && trk !== r.channel_order_sn.toUpperCase()) existingTrackingMap.set(r.channel_order_sn.toUpperCase(), trk);
                 }
               });
             }
@@ -197,9 +236,19 @@ export async function saveGineeOrdersToSupabase(
 
         const cleanChannelSn = (order.channelOrderSn || '').trim().toUpperCase();
         const cleanOrderSn = (order.orderSn || '').trim().toUpperCase();
+        const printedBatchAwbs = new Set<string>();
+        if (cleanChannelSn && printedBatchAwbMap.has(cleanChannelSn)) {
+          printedBatchAwbMap.get(cleanChannelSn)!.forEach(a => printedBatchAwbs.add(a));
+        }
+        if (cleanOrderSn && printedBatchAwbMap.has(cleanOrderSn)) {
+          printedBatchAwbMap.get(cleanOrderSn)!.forEach(a => printedBatchAwbs.add(a));
+        }
 
-        // 1. Tentukan nomor resi kurir (AWB): prioritaskan payload baru, lalu fallback ke database lama
+        // 1. Tentukan nomor resi kurir (AWB): prioritaskan payload baru, lalu batch_items (label cetak), lalu fallback ke database lama
         let cleanTracking = (order.trackingNo && order.trackingNo !== '-' ? order.trackingNo : '').trim().toUpperCase();
+        if ((!cleanTracking || !isValidAwbFormat(cleanTracking) || cleanTracking === cleanChannelSn || cleanTracking === cleanOrderSn) && printedBatchAwbs.size > 0) {
+          cleanTracking = Array.from(printedBatchAwbs)[0];
+        }
         if (!cleanTracking) {
           const fromDb = existingTrackingMap.get(cleanOrderSn) || (cleanChannelSn ? existingTrackingMap.get(cleanChannelSn) : null);
           if (fromDb && fromDb !== '-') {
@@ -243,12 +292,12 @@ export async function saveGineeOrdersToSupabase(
 
         // 2. Jika status Batal, masukkan ke daftar cancelRows untuk cancelled_orders
         // ATURAN KETAT KALINDO:
-        // A. HANYA ambil data cancel jika status label: "Label telah dicetak" (PRINTED)
+        // A. HANYA ambil data cancel jika status label: "Label telah dicetak" (PRINTED / ada di batch_items print)
         // B. Waktu & tanggal diambil berdasarkan Waktu Pembatalan (cancelTime / cancelled_at), BUKAN Waktu Pembuatan
         // C. Barcode HANYA berupa nomor resi/AWB kurir, BUKAN id pesanan / no. pemesanan toko
         if (normalizedSt === 'CANCELLED') {
           const rawP = (order as any).rawPayload || {};
-          const isLabelPrinted = Boolean(
+          const isExplicitlyPrinted = Boolean(
             order.labelPrinted === true ||
             (order as any).shippingLabelStatus === 'PRINTED' ||
             (order as any).printStatus === 'PRINTED' ||
@@ -258,6 +307,7 @@ export async function saveGineeOrdersToSupabase(
             String(rawP.shippingLabelPrintStatus || '').toUpperCase() === 'PRINTED' ||
             /PRINTED|DICETAK|TELAH DICETAK/i.test(String((order as any).shippingLabelStatus || rawP.shippingLabelStatus || ''))
           );
+          const isLabelPrinted = printedBatchAwbs.size > 0 || isExplicitlyPrinted;
 
           // Saring ketat: HANYA proses jika status label: "label telah dicetak"!
           if (isLabelPrinted) {
@@ -282,7 +332,7 @@ export async function saveGineeOrdersToSupabase(
               order.note ||
               rawP.cancelReason ||
               rawP.reason ||
-              'Dibatalkan di Marketplace / Ginee OMS';
+              (order.shopName ? `Dibatalkan di Marketplace / Ginee OMS (${order.shopName})` : 'Dibatalkan di Marketplace / Ginee OMS');
 
             // Kumpulkan seluruh kandidat AWB/Resi kurir unik (MUTLAK: HANYA RESI, BUKAN ID PESANAN)
             const trackingCandidates = new Set<string>();
@@ -295,6 +345,9 @@ export async function saveGineeOrdersToSupabase(
               );
             };
 
+            printedBatchAwbs.forEach(awb => {
+              if (isTrackingAwb(awb)) trackingCandidates.add(awb);
+            });
             if (cleanTracking && isTrackingAwb(cleanTracking)) {
               trackingCandidates.add(cleanTracking);
             }
@@ -931,29 +984,160 @@ export async function syncGineeCancelledOrdersToKalindo(
       }
     }
 
-    // 1. Ambil seluruh data cancelled_orders dari Supabase Ginee yang memiliki tracking_no
+    const uniqueGineeMap = new Map<string, any>();
+
+    // 1. Ambil pesanan CANCELLED dari ginee_orders (7 hari terakhir) lalu cocokkan dengan batch_items (Label telah dicetak)
+    // Karena endpoint list Ginee API tidak mengembalikan nomor resi kurir & status cetak label,
+    // tabel batch_items (hasil cetak label admin) adalah sumber pasti untuk AWB + status "Label telah dicetak".
+    const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
+    const gineeCancelRows: any[] = [];
+    const PAGE_LIMIT = 1000;
+    for (let page = 0; page < 20; page++) {
+      const fromIdx = page * PAGE_LIMIT;
+      const toIdx = fromIdx + PAGE_LIMIT - 1;
+      const { data: pageRows, error: pageErr } = await supabase
+        .from(GINEE_ORDERS_TABLE)
+        .select('order_id, channel_order_sn, tracking_no, status, shop_name, channel, buyer_note, updated_at, raw_payload')
+        .eq('status', 'CANCELLED')
+        .gte('updated_at', since7d)
+        .order('updated_at', { ascending: false })
+        .range(fromIdx, toIdx);
+
+      if (pageErr) {
+        console.warn('[GineeSync] Gagal mengambil ginee_orders CANCELLED:', pageErr.message);
+        break;
+      }
+      if (!Array.isArray(pageRows) || pageRows.length === 0) break;
+      gineeCancelRows.push(...pageRows);
+      if (pageRows.length < PAGE_LIMIT) break;
+    }
+
+    if (gineeCancelRows.length > 0) {
+      const gMapByOrder = new Map<string, any>();
+      const lookupIdsSet = new Set<string>();
+
+      for (const g of gineeCancelRows) {
+        const oid = String(g.order_id || '').trim().toUpperCase();
+        const chSn = String(g.channel_order_sn || '').trim().toUpperCase();
+        if (chSn) {
+          gMapByOrder.set(chSn, g);
+          lookupIdsSet.add(chSn);
+        }
+        if (oid) {
+          gMapByOrder.set(oid, g);
+          lookupIdsSet.add(oid);
+        }
+
+        // Juga cek jika ginee_orders sudah membawa flag PRINTED eksplisit + AWB valid (misal dari webhook)
+        const rawP = g.raw_payload || {};
+        const trk = String(g.tracking_no || '').trim().toUpperCase();
+        const isExplicitPrinted = Boolean(
+          rawP.isPrintWaybill === true ||
+          String(rawP.shippingLabelStatus || '').toUpperCase() === 'PRINTED' ||
+          String(rawP.printStatus || '').toUpperCase() === 'PRINTED' ||
+          String(rawP.shippingDocumentInfo?.shippingLabelStatus || '').toUpperCase() === 'PRINTED'
+        );
+        if (isExplicitPrinted && trk && isValidAwbFormat(trk) && trk !== oid && trk !== chSn) {
+          const cancelTimeVal =
+            rawP.cancelTime ||
+            rawP.cancelledTime ||
+            rawP.cancelAt ||
+            rawP.cancelledAt ||
+            rawP.externalCancelAt ||
+            rawP.externalCancelTime ||
+            rawP.lastUpdateAt ||
+            rawP.externalUpdateAt ||
+            g.updated_at;
+          uniqueGineeMap.set(trk, {
+            tracking_no: trk,
+            order_sn: oid || null,
+            channel_order_sn: chSn || null,
+            cancelled_at: safeIsoDate(cancelTimeVal) || new Date().toISOString(),
+            reason: g.buyer_note || rawP.cancelReason || rawP.reason || (g.shop_name ? `Dibatalkan di Marketplace / Ginee OMS (${g.shop_name})` : 'Dibatalkan di Marketplace / Ginee OMS'),
+            shop_name: g.shop_name || null,
+            channel: g.channel || null,
+          });
+        }
+      }
+
+      // Cross-check batch_items secara paralel (8 slice x 100 order_id) untuk menemukan label yang sudah dicetak
+      const lookupIds = Array.from(lookupIdsSet);
+      const idSlices: string[][] = [];
+      for (let i = 0; i < lookupIds.length; i += 100) {
+        idSlices.push(lookupIds.slice(i, i + 100));
+      }
+
+      for (let i = 0; i < idSlices.length; i += 8) {
+        const group = idSlices.slice(i, i + 8);
+        const results = await Promise.all(
+          group.map(slice =>
+            targetClient
+              .from('batch_items')
+              .select('barcode, order_id')
+              .in('order_id', slice)
+          )
+        );
+
+        for (const res of results) {
+          if (res.error || !Array.isArray(res.data)) continue;
+          for (const b of res.data) {
+            const awb = String(b.barcode || '').trim().toUpperCase();
+            const matchedId = String(b.order_id || '').trim().toUpperCase();
+            const g = gMapByOrder.get(matchedId);
+            if (!g) continue;
+
+            const oid = String(g.order_id || '').trim().toUpperCase();
+            const chSn = String(g.channel_order_sn || '').trim().toUpperCase();
+            if (!awb || !isValidAwbFormat(awb) || awb === oid || awb === chSn || awb === matchedId) continue;
+
+            if (!uniqueGineeMap.has(awb)) {
+              const rawP = g.raw_payload || {};
+              const cancelTimeVal =
+                rawP.cancelTime ||
+                rawP.cancelledTime ||
+                rawP.cancelAt ||
+                rawP.cancelledAt ||
+                rawP.externalCancelAt ||
+                rawP.externalCancelTime ||
+                rawP.lastUpdateAt ||
+                rawP.externalUpdateAt ||
+                g.updated_at;
+              uniqueGineeMap.set(awb, {
+                tracking_no: awb,
+                order_sn: oid || null,
+                channel_order_sn: chSn || null,
+                cancelled_at: safeIsoDate(cancelTimeVal) || new Date().toISOString(),
+                reason: g.buyer_note || rawP.cancelReason || rawP.reason || (g.shop_name ? `Dibatalkan di Marketplace / Ginee OMS (${g.shop_name})` : 'Dibatalkan di Marketplace / Ginee OMS'),
+                shop_name: g.shop_name || null,
+                channel: g.channel || null,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 1b. Juga periksa baris yang mungkin sudah punya tracking_no di cancelled_orders
     const { data: gineeCancels, error: gErr } = await supabase
       .from(GINEE_CANCELLATIONS_TABLE)
-      .select('tracking_no, barcode, order_sn, channel_order_sn, cancelled_at, reason, shop_name, is_active')
+      .select('tracking_no, barcode, order_sn, channel_order_sn, cancelled_at, reason, shop_name, channel, is_active')
       .not('tracking_no', 'is', null)
-      .order('cancelled_at', { ascending: false });
+      .order('cancelled_at', { ascending: false })
+      .limit(1000);
 
-    if (gErr) {
+    if (gErr && uniqueGineeMap.size === 0) {
       console.warn('[GineeSync] Gagal mengambil cancelled_orders dari Supabase Ginee:', gErr.message);
       return { success: false, totalGinee: 0, newInserted: 0, error: gErr.message };
     }
 
-    if (!gineeCancels || gineeCancels.length === 0) {
-      return { success: true, totalGinee: 0, newInserted: 0 };
-    }
-
-    // 2. Ekstrak data unik berdasarkan tracking_no (Nomor Resi / AWB Kurir - BUKAN nomor pesanan)
-    const uniqueGineeMap = new Map<string, any>();
-    for (const r of gineeCancels) {
-      const trk = String(r.tracking_no || '').trim().toUpperCase();
-      // Pastikan hanya nomor resi/AWB kurir valid (bukan ID pesanan SO... atau order SN Shopee/TikTok)
-      if (trk && isValidAwbFormat(trk) && !uniqueGineeMap.has(trk)) {
-        uniqueGineeMap.set(trk, r);
+    if (Array.isArray(gineeCancels)) {
+      for (const r of gineeCancels) {
+        const trk = String(r.tracking_no || '').trim().toUpperCase();
+        const oid = String(r.order_sn || '').trim().toUpperCase();
+        const chSn = String(r.channel_order_sn || '').trim().toUpperCase();
+        if (trk && isValidAwbFormat(trk) && trk !== oid && trk !== chSn && !uniqueGineeMap.has(trk)) {
+          uniqueGineeMap.set(trk, r);
+        }
       }
     }
 
@@ -965,6 +1149,15 @@ export async function syncGineeCancelledOrdersToKalindo(
     // 2b. Validasi status asli pesanan di ginee_orders:
     // Saring dan jangan biarkan nomor resi yang statusnya aktif / kirim masuk ke Data Cancel Kalindo!
     const activeTrackings = new Set<string>();
+    const activeChannelSns = new Set<string>();
+    const candidateChannelSns = Array.from(
+      new Set(
+        Array.from(uniqueGineeMap.values())
+          .map(r => String(r.channel_order_sn || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+
     for (let i = 0; i < allTrackings.length; i += 100) {
       const slice = allTrackings.slice(i, i + 100);
       const { data: gineeOrders } = await supabase
@@ -977,6 +1170,30 @@ export async function syncGineeCancelledOrdersToKalindo(
         gineeOrders.forEach(go => {
           if (go.tracking_no) activeTrackings.add(String(go.tracking_no).trim().toUpperCase());
         });
+      }
+    }
+
+    for (let i = 0; i < candidateChannelSns.length; i += 100) {
+      const slice = candidateChannelSns.slice(i, i + 100);
+      const { data: gineeOrders } = await supabase
+        .from(GINEE_ORDERS_TABLE)
+        .select('channel_order_sn, status')
+        .in('channel_order_sn', slice)
+        .neq('status', 'CANCELLED');
+
+      if (Array.isArray(gineeOrders)) {
+        gineeOrders.forEach(go => {
+          if (go.channel_order_sn) activeChannelSns.add(String(go.channel_order_sn).trim().toUpperCase());
+        });
+      }
+    }
+
+    if (activeChannelSns.size > 0) {
+      for (const [trk, r] of uniqueGineeMap.entries()) {
+        const chSn = String(r.channel_order_sn || '').trim().toUpperCase();
+        if (chSn && activeChannelSns.has(chSn)) {
+          activeTrackings.add(trk);
+        }
       }
     }
 
@@ -1025,9 +1242,14 @@ export async function syncGineeCancelledOrdersToKalindo(
       // 5. Masukkan data baru yang sah ke tabel cancelled_orders di Supabase utama
       const rowsToInsert = toInsert.map(r => ({
         barcode: String(r.tracking_no).trim().toUpperCase(),
-        cancelled_by: 'Ginee OMS Realtime',
+        tracking_no: String(r.tracking_no).trim().toUpperCase(),
+        order_sn: r.order_sn || null,
+        channel_order_sn: r.channel_order_sn || null,
+        cancelled_by: 'Ginee Sync Supabase',
         reason: r.reason || (r.shop_name ? `Dibatalkan di Marketplace / Ginee OMS (${r.shop_name})` : 'Dibatalkan di Marketplace / Ginee OMS'),
         cancelled_at: r.cancelled_at || new Date().toISOString(),
+        shop_name: r.shop_name || null,
+        channel: r.channel || null,
         is_active: true,
       }));
 
