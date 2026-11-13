@@ -31,4 +31,5 @@ dist-ssr
 *.sw?
 scratch/
 .wrangler/
+legacy_functions/
 

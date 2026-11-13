@@ -16,7 +16,7 @@ export interface GineeSyncGlobalState {
 
 const SETTING_KEY = 'ginee_sync_state';
 const GINEE_SYNC_ENABLED_KEY = 'ginee_sync_enabled';
-const SYNC_THROTTLE_MS = 15 * 60 * 1000; // 15 menit interval aman antar PC
+const SYNC_THROTTLE_MS = 2 * 60 * 1000; // 2 menit interval sinkronisasi antar PC (tetap cepat & realtime)
 const LOCK_TIMEOUT_MS = 3 * 60 * 1000;   // 3 menit batas lock jika ada PC crash/freeze
 
 /**
@@ -389,10 +389,10 @@ export function initGineeGlobalSyncScheduler(): void {
     });
   }, 5000);
 
-  // 2. Cek berkala setiap 10 menit
+  // 2. Cek berkala setiap 2 menit (menjaga data tetap update & realtime)
   setInterval(() => {
     runGlobalGineeBackgroundSync({ isManual: false }).catch(err => {
       console.warn('[GineeGlobalSync] Periodic background sync error:', err);
     });
-  }, 10 * 60 * 1000);
+  }, 2 * 60 * 1000);
 }

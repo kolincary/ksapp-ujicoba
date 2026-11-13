@@ -8,12 +8,12 @@ const DEFAULT_APP_SECRET = '46218d81e39ad490';
 const DEFAULT_COUNTRY = 'ID';
 const WEBHOOK_SECRET = 'kalindo_secret_2026';
 
-// Inisialisasi Supabase Client untuk Serverless Environment Vercel (Khusus Ginee OMS)
-const SUPABASE_URL = process.env.VITE_GINEE_SUPABASE_URL || 'https://plltdvaxzxwsdtxlwnkf.supabase.co';
+// Inisialisasi Supabase Client untuk Serverless Environment (Khusus Ginee OMS VPS)
+const SUPABASE_URL = process.env.VITE_GINEE_SUPABASE_URL || 'https://light-specialty-cadillac-successful.trycloudflare.com';
 const SUPABASE_KEY =
   process.env.GINEE_SUPABASE_SERVICE_ROLE_KEY ||
   process.env.VITE_GINEE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsbHRkdmF4enh3c2R0eGx3bmtmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI4ODAwMjUsImV4cCI6MjEwODQ1NjAyNX0.WM46Ndn5RJOl7n9OUhOfB7gKC4oIdNsZzwMaynTpXKI';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -109,8 +109,8 @@ export default async function handler(req: any, res: any) {
     }
     return res.status(200).json({
       status: 'active',
-      service: 'Kalindo Ginee Webhook Handler V3 (Supabase Realtime)',
-      endpoint: 'https://www.kalindoapp.my.id/api/ginee-webhook',
+      service: 'Kalindo Ginee Webhook Handler V3 (VPS Direct Edge / Supabase Realtime)',
+      endpoint: 'https://light-specialty-cadillac-successful.trycloudflare.com/functions/v1/ginee-webhook',
       timestamp: new Date().toISOString(),
     });
   }
@@ -329,15 +329,17 @@ export default async function handler(req: any, res: any) {
 
     if (isCancelEvent) {
       const cancelReason = enrichedData.cancelReason || enrichedData.reason || data.cancelReason || 'Pesanan dibatalkan di Marketplace / Ginee OMS';
+      const safeCancelledAt = safeIsoDate(enrichedData.cancelTime || enrichedData.lastUpdateAt || enrichedData.updateTime) || safeCreated;
 
-      // 1. Simpan pembatalan untuk SETIAP Nomor Resi Kurir (AWB) yang pernah dicetak — INILAH YANG DI-SCAN PACKING
+      // 1. Simpan pembatalan HANYA untuk Nomor Resi Kurir (AWB) yang valid — INILAH YANG DI-SCAN PACKING
+      // Jangan simpan ID internal (SO...) atau Nomor Pesanan Marketplace ke tabel cancelled_orders
       for (const awb of trackingCandidates) {
         const cancelPayloadAwb: any = {
           barcode: awb,
           tracking_no: awb,
           order_sn: orderId,
-          channel_order_sn: channelSn,
-          cancelled_at: safeCreated,
+          channel_order_sn: channelSn || null,
+          cancelled_at: safeCancelledAt,
           cancelled_by: 'Ginee Webhook V3 Realtime',
           reason: cancelReason,
           shop_name: shopName,
@@ -354,50 +356,6 @@ export default async function handler(req: any, res: any) {
         } else {
           console.log(`[GineeWebhook] 🚨 Pesanan Batal dicatat di Supabase via RESI KURIR (AWB): ${awb} (${orderId})`);
         }
-      }
-
-      // 2. Simpan juga pembatalan berdasarkan Nomor Pesanan Marketplace (Shopee, TikTok, dll)
-      if (channelSn && !channelSn.startsWith('SO') && !trackingCandidates.has(channelSn)) {
-        const cancelPayloadChn: any = {
-          barcode: channelSn,
-          tracking_no: primaryTracking,
-          order_sn: orderId,
-          channel_order_sn: channelSn,
-          cancelled_at: safeCreated,
-          cancelled_by: 'Ginee Webhook V3 Realtime',
-          reason: cancelReason,
-          shop_name: shopName,
-          channel: channelName,
-          is_active: true,
-        };
-
-        const { error: cancelErr2 } = await supabase
-          .from('cancelled_orders')
-          .upsert(cancelPayloadChn, { onConflict: 'barcode' });
-
-        if (cancelErr2) {
-          console.warn('[GineeWebhook] Error recording cancelled_orders channelSn to Supabase:', cancelErr2.message);
-        } else {
-          console.log(`[GineeWebhook] 🚨 Pesanan Batal dicatat di Supabase via NO PESANAN TOKO: ${channelSn} (${orderId})`);
-        }
-      }
-
-      // 3. Jika belum memiliki nomor resi sama sekali (dibatalkan sebelum cetak), simpan orderId Ginee
-      if (trackingCandidates.size === 0 && orderId && orderId !== channelSn) {
-        await supabase
-          .from('cancelled_orders')
-          .upsert({
-            barcode: orderId,
-            tracking_no: null,
-            order_sn: orderId,
-            channel_order_sn: channelSn,
-            cancelled_at: safeCreated,
-            cancelled_by: 'Ginee Webhook V3 Realtime',
-            reason: cancelReason,
-            shop_name: shopName,
-            channel: channelName,
-            is_active: true,
-          }, { onConflict: 'barcode' });
       }
     } else if (isExplicitActive) {
       // Pembersihan otomatis: jika pesanan aktif / siap dikirim / telah dikirim,

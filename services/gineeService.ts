@@ -1,4 +1,5 @@
 import { saveOrdersToIndexedDB, getAllOrdersFromIndexedDB, isMockOrder } from './gineeIndexedDb';
+import { VPS_URL } from './supabaseClient';
 
 export interface GineeOrderItem {
   sku: string;
@@ -1740,6 +1741,8 @@ export function normalizeOrderStatus(rawStatus?: string, rawObject?: any): strin
 }
 
 // ─── Low-Level Proxy Caller ───────────────────────────────────────────────────
+export const DEFAULT_GINEE_EDGE_PROXY = `${VPS_URL}/functions/v1/ginee-proxy`;
+
 export async function callGineeProxy(
   path: string,
   method: string,
@@ -1756,11 +1759,13 @@ export async function callGineeProxy(
   const appKey = config.appKey.trim();
   const appSecret = config.appSecret.trim();
   const host = config.host || 'https://api.ginee.com';
-  let lastError: Error | null = null;
 
-  // 1. Custom Proxy URL
-  if (mode === 'custom' && config.customProxyUrl) {
-    const res = await fetch(config.customProxyUrl, {
+  // 1. Target VPS Supabase Edge Function Proxy (Default / Auto / Server / Supabase / Custom)
+  // Berjalan di Deno Edge Runtime VPS langsung tanpa batas kuota 100k Cloudflare Worker!
+  const targetProxyUrl = config.customProxyUrl || DEFAULT_GINEE_EDGE_PROXY;
+
+  try {
+    const res = await fetch(targetProxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1773,53 +1778,11 @@ export async function callGineeProxy(
         host,
       }),
     });
-    if (!res.ok) {
-      const errText = await res.text();
-      if ((res.status === 429 || res.status === 503) && retryCount < maxRetries) {
-        const waitMs = (retryCount + 1) * 2000;
-        console.warn(`[callGineeProxy] Custom Proxy 429, waiting ${waitMs}ms before retry (${retryCount + 1}/${maxRetries})...`);
-        await new Promise(r => setTimeout(r, waitMs));
-        return await callGineeProxy(path, method, body, config, retryCount + 1, maxRetries);
-      }
-      throw new Error(`Custom Proxy Error (${res.status}): ${errText}`);
-    }
-    const data = await res.json();
-    if (data.code === 'SERVICE_BUSY' && retryCount < maxRetries) {
-      const waitMs = (retryCount + 1) * 2000;
-      await new Promise(r => setTimeout(r, waitMs));
-      return await callGineeProxy(path, method, body, config, retryCount + 1, maxRetries);
-    }
-    if (data.code !== undefined && data.code !== 0 && data.code !== '0' && data.code !== 200 && data.code !== 'SUCCESS') {
-      throw new GineeApiError(data.message || data.msg || JSON.stringify(data), data.code, path);
-    }
-    return data;
-  }
-
-  // 1. Direct Server / Local Dev Proxy (/api/ginee) - Primary & Default (No Supabase!)
-  // Works directly via Vite dev server (on localhost) and Vercel rewrites (in production).
-  if (mode === 'auto' || mode === 'server') {
-    const signature = await generateGineeSignature(appSecret, method, path);
-    const dateStr = new Date().toUTCString();
-    const res = await fetch(`/api/ginee${path}`, {
-      method: method.toUpperCase(),
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Advai-Country': country,
-        'X-Advai-Date': dateStr,
-        'Authorization': `${appKey}:${signature}`,
-      },
-      body: body && Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
-    });
-
-    // Hanya log jika bukan penarikan daftar pesanan berulang (agar console tetap bersih & rapi)
-    if (!path.includes('/order/list')) {
-      console.log(`[callGineeProxy] -> ${method.toUpperCase()} /api/ginee${path}`, { body });
-    }
 
     if (res.ok) {
       const data = await res.json();
       if (!path.includes('/order/list')) {
-        console.log(`[callGineeProxy] <- Response (status ${res.status}):`, data);
+        console.log(`[callGineeProxy] <- VPS Edge Response (status ${res.status}):`, data);
       }
 
       // Handle SERVICE_BUSY gateway throttling with backoff retry
@@ -1873,46 +1836,31 @@ export async function callGineeProxy(
 
       throw new GineeApiError(`Ginee Gateway (${res.status}): ${parsedErr}`, parsedCode, path);
     }
-  }
-
-  // 2. Supabase Edge Function Proxy (ONLY if user explicitly selected mode === 'supabase')
-  if (mode === 'supabase') {
-    const edgeUrl = 'https://nufvlqrtpzfiqghsxsze.supabase.co/functions/v1/ginee-proxy';
-    const edgeRes = await fetch(edgeUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        path,
-        method,
-        body,
-        appKey,
-        appSecret,
-        country,
-        host,
-      }),
-    });
-
-    if (edgeRes.ok) {
-      const data = await edgeRes.json();
-      if (data.error) {
-        throw new Error(`Proxy Error: ${data.error}`);
-      }
-      if (data.code !== undefined && data.code !== 0 && data.code !== '0' && data.code !== 200 && data.code !== 'SUCCESS') {
-        throw new GineeApiError(data.message || data.msg || JSON.stringify(data), data.code, path);
-      }
-      return data;
-    } else {
-      const errText = await edgeRes.text();
-      let parsedErr = errText;
+  } catch (proxyErr: any) {
+    // Fallback khusus jika di localhost development dan VPS proxy mengalami offline/timeout
+    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    if (isLocalhost && !config.customProxyUrl) {
+      console.warn('[callGineeProxy] VPS Edge proxy failed in localhost, attempting fallback to local /api/ginee:', proxyErr.message);
       try {
-        const json = JSON.parse(errText);
-        parsedErr = json.message || json.error || errText;
+        const signature = await generateGineeSignature(appSecret, method, path);
+        const dateStr = new Date().toUTCString();
+        const res = await fetch(`/api/ginee${path}`, {
+          method: method.toUpperCase(),
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Advai-Country': country,
+            'X-Advai-Date': dateStr,
+            'Authorization': `${appKey}:${signature}`,
+          },
+          body: body && Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+        });
+        if (res.ok) {
+          return await res.json();
+        }
       } catch {}
-      throw new Error(`Edge Function (${edgeRes.status}): ${parsedErr}`);
     }
+    throw proxyErr;
   }
-
-  throw new Error('Mode proxy tidak dikenali.');
 }
 
 // ─── Chunk Date Range to Max 14 Days Windows ──────────────────────────────────
