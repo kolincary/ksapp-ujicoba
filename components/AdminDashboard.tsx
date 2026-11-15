@@ -77,6 +77,7 @@ import {
    Clock,
    RefreshCw,
    ChevronDown,
+   ChevronUp,
    Slash,
    CheckCircle,
    ChevronLeft,
@@ -13391,38 +13392,35 @@ if (filterPackingShift !== 'ALL') {
 
    // Panel Sinkronisasi Data Dua Arah: Firestore ⇄ Supabase VPS
    const renderSyncDataPanel = () => {
-      if (!showFsSyncDevMode && !isDevMode && !showSecretMenu) return null;
+      if (!showFsSyncDevMode) return null;
 
       return (
-         <div className="p-4 sm:p-6 pb-2 max-w-7xl mx-auto w-full shrink-0">
-            <div className="p-4 sm:p-6 bg-gradient-to-br from-slate-900 via-gray-900 to-orange-950 text-white rounded-2xl shadow-2xl border border-orange-500/30 relative overflow-hidden transition-all">
-               {/* Decorative Background */}
-               <div className="absolute -right-12 -top-12 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
-               <div className="absolute -left-12 -bottom-12 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
+         <div className="w-full shrink-0 animate-[fadeIn_0.2s_ease-out]">
+            <div className="p-4 sm:p-5 bg-slate-900 dark:bg-slate-950 text-white rounded-2xl shadow-xl border border-slate-700/80 relative overflow-hidden transition-all">
                {/* Header Badge & Close Button */}
-               <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-5 border-b border-gray-800/80 pb-4">
+               <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 mb-4 pb-3.5 border-b border-slate-800">
                   <div className="flex items-center gap-3">
-                     <div className="p-2 sm:p-2.5 bg-gradient-to-tr from-orange-600 to-amber-500 text-white rounded-xl shadow-lg shadow-orange-500/30 shrink-0">
-                        <RefreshCw size={20} className={isSyncingFs ? "animate-spin" : ""} />
+                     <div className="p-2 sm:p-2.5 bg-amber-600 text-white rounded-xl shadow-md shrink-0">
+                        <RefreshCw size={18} className={isSyncingFs ? "animate-spin" : ""} />
                      </div>
                      <div>
                         <div className="flex flex-wrap items-center gap-2">
-                           <h4 className="text-base sm:text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-yellow-200">
-                              ⚡️ Panel Sinkronisasi Data: Firestore ⇄ Supabase VPS
+                           <h4 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                              <ArrowRightLeft size={16} className="text-amber-400" />
+                              Panel Sinkronisasi Data: Firestore ⇄ Supabase VPS
                            </h4>
-                           <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/40">
+                           <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
                               SYNC MANAGER
                            </span>
                         </div>
-                        <p className="text-xs text-gray-300 mt-1">
+                        <p className="text-xs text-slate-300 mt-1">
                            {syncDirection === 'FS_TO_SB' ? (
                               <span>
-                                 📥 Membaca data dari <strong className="text-amber-400">Firestore</strong> lalu menyimpan ke <strong className="text-emerald-400">Supabase VPS</strong>. (Aman: duplikat otomatis dilewati, tanpa menimpa data live, hemat read Firestore).
+                                 Membaca data dari <strong className="text-amber-300">Firestore</strong> lalu menyimpan ke <strong className="text-emerald-400">Supabase VPS</strong> (duplikat otomatis dilewati, tanpa menimpa data live, hemat read Firestore).
                               </span>
                            ) : (
                               <span>
-                                 📤 Membaca data dari <strong className="text-emerald-400">Supabase VPS</strong> lalu mengirimkan ke <strong className="text-amber-400">Firestore</strong>. (Multi-Batch 250 data per batch).
+                                 Membaca data dari <strong className="text-emerald-400">Supabase VPS</strong> lalu mengirimkan ke <strong className="text-amber-300">Firestore</strong> (multi-batch 250 data per batch).
                               </span>
                            )}
                         </p>
@@ -13431,7 +13429,7 @@ if (filterPackingShift !== 'ALL') {
 
                   <button
                      onClick={() => setShowFsSyncDevMode(false)}
-                     className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all ml-auto sm:ml-0 cursor-pointer"
+                     className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all ml-auto sm:ml-0 cursor-pointer"
                      title="Tutup Panel Sinkronisasi"
                   >
                      <X size={18} />
@@ -13439,72 +13437,72 @@ if (filterPackingShift !== 'ALL') {
                </div>
 
                {/* DIRECTION SELECTOR TABS */}
-               <div className="flex flex-wrap items-center gap-2 mb-4 p-1.5 bg-black/50 border border-gray-800 rounded-xl">
+               <div className="flex flex-wrap items-center gap-2 mb-4 p-1.5 bg-slate-950/80 border border-slate-800 rounded-xl">
                   <button
                      type="button"
                      onClick={() => setSyncDirection('FS_TO_SB')}
-                     className={`flex-1 min-w-[220px] py-2.5 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                     className={`flex-1 min-w-[200px] py-2 px-3.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                         syncDirection === 'FS_TO_SB'
-                           ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-md shadow-emerald-500/20'
-                           : 'text-gray-400 hover:text-white hover:bg-white/5'
+                           ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                           : 'text-slate-400 hover:text-white hover:bg-white/5'
                      }`}
                   >
-                     <Database size={15} />
-                     <span>🌟 Firestore ➔ Supabase VPS (Disarankan)</span>
+                     <Database size={14} />
+                     <span>Firestore → Supabase VPS (Disarankan)</span>
                   </button>
                   <button
                      type="button"
                      onClick={() => setSyncDirection('SB_TO_FS')}
-                     className={`flex-1 min-w-[220px] py-2.5 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                     className={`flex-1 min-w-[200px] py-2 px-3.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                         syncDirection === 'SB_TO_FS'
-                           ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20'
-                           : 'text-gray-400 hover:text-white hover:bg-white/5'
+                           ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+                           : 'text-slate-400 hover:text-white hover:bg-white/5'
                      }`}
                   >
-                     <Zap size={15} />
-                     <span>⚡ Supabase VPS ➔ Firestore</span>
+                     <ArrowRightLeft size={14} />
+                     <span>Supabase VPS → Firestore</span>
                   </button>
                </div>
 
                {/* QUICK DATE SHORTCUTS */}
-               <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[11px] font-bold text-gray-400">
-                  <span className="mr-1 text-gray-400">Pilih Cepat:</span>
+               <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[11px] font-bold text-slate-400">
+                  <span className="mr-1 text-slate-400">Pilih Cepat:</span>
                   <button
                      type="button"
                      onClick={() => setQuickSyncDate('TODAY')}
-                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                     className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg border border-slate-700 transition-all cursor-pointer"
                   >
                      Hari Ini
                   </button>
                   <button
                      type="button"
                      onClick={() => setQuickSyncDate('YESTERDAY')}
-                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                     className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all cursor-pointer"
                   >
                      Kemarin
                   </button>
                   <button
                      type="button"
                      onClick={() => setQuickSyncDate('7DAYS')}
-                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                     className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all cursor-pointer"
                   >
                      7 Hari Terakhir
                   </button>
                   <button
                      type="button"
                      onClick={() => setQuickSyncDate('30DAYS')}
-                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-all cursor-pointer"
+                     className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all cursor-pointer"
                   >
                      30 Hari Terakhir
                   </button>
                </div>
 
                {/* Form Inputs Grid */}
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-5">
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
                   {/* Tanggal Mulai */}
                   <div className="relative">
-                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                        <CalendarIcon size={14} className="text-orange-400" />
+                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <CalendarIcon size={13} className="text-amber-400" />
                         Tanggal Mulai
                      </label>
                      <input
@@ -13512,14 +13510,14 @@ if (filterPackingShift !== 'ALL') {
                         value={syncStartDate}
                         onChange={(e) => setSyncStartDate(e.target.value)}
                         onClick={(e) => { try { if (typeof (e.currentTarget as any).showPicker === 'function') (e.currentTarget as any).showPicker(); } catch (err) {} }}
-                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all font-mono relative cursor-pointer"
+                        className="w-full h-10 px-3 bg-slate-800/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 transition-all font-mono relative cursor-pointer"
                      />
                   </div>
 
                   {/* Tanggal Akhir */}
                   <div className="relative">
-                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                        <CalendarIcon size={14} className="text-orange-400" />
+                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <CalendarIcon size={13} className="text-amber-400" />
                         Tanggal Akhir
                      </label>
                      <input
@@ -13527,20 +13525,20 @@ if (filterPackingShift !== 'ALL') {
                         value={syncEndDate}
                         onChange={(e) => setSyncEndDate(e.target.value)}
                         onClick={(e) => { try { if (typeof (e.currentTarget as any).showPicker === 'function') (e.currentTarget as any).showPicker(); } catch (err) {} }}
-                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all font-mono relative cursor-pointer"
+                        className="w-full h-10 px-3 bg-slate-800/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 transition-all font-mono relative cursor-pointer"
                      />
                   </div>
 
                   {/* Filter Role */}
                   <div>
-                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                        <Filter size={14} className="text-orange-400" />
+                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Filter size={13} className="text-amber-400" />
                         Filter Role
                      </label>
                      <select
                         value={syncRole}
                         onChange={(e) => setSyncRole(e.target.value)}
-                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition-all"
+                        className="w-full h-10 px-3 bg-slate-800/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 transition-all cursor-pointer"
                      >
                         <option value="SEMUA">SEMUA ROLE</option>
                         <option value="CHECKER">CHECKER</option>
@@ -13561,8 +13559,8 @@ if (filterPackingShift !== 'ALL') {
 
                   {/* Custom Firestore Collection */}
                   <div>
-                     <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                        <Database size={14} className="text-orange-400" />
+                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Database size={13} className="text-amber-400" />
                         Collection Firestore
                      </label>
                      <input
@@ -13570,31 +13568,31 @@ if (filterPackingShift !== 'ALL') {
                         value={syncCollectionName}
                         onChange={(e) => setSyncCollectionName(e.target.value)}
                         placeholder="scanned_items"
-                        className="w-full h-10 px-3 bg-gray-800/90 border border-gray-700 rounded-xl text-sm text-white font-mono placeholder:font-sans focus:outline-none focus:border-orange-500 transition-all"
+                        className="w-full h-10 px-3 bg-slate-800/90 border border-slate-700 rounded-xl text-sm text-white font-mono placeholder:font-sans focus:outline-none focus:border-amber-500 transition-all"
                      />
                   </div>
                </div>
 
                {/* Action Buttons & Status Msg */}
-               <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 sm:gap-4 pt-3 border-t border-gray-800/80">
-                  <div className="flex flex-col sm:flex-row items-center gap-3">
+               <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                  <div className="flex flex-col sm:flex-row items-center gap-2.5">
                      {syncDirection === 'FS_TO_SB' ? (
                         <>
                            <button
                               onClick={handleSyncFirestoreToSupabase}
                               disabled={isSyncingFs || isVerifyingFs}
-                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              className="w-full sm:w-auto h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md shadow-emerald-600/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs shrink-0 cursor-pointer"
                               title="Sinkronisasi data Firestore ke Supabase VPS sekaligus"
                            >
                               {isSyncingFs ? (
                                  <>
-                                    <Loader2 size={18} className="animate-spin" />
-                                    Menyinkronkan ke VPS...
+                                    <Loader2 size={15} className="animate-spin" />
+                                    <span>Menyinkronkan ke VPS...</span>
                                  </>
                               ) : (
                                  <>
-                                    <RefreshCw size={18} />
-                                    🚀 Mulai Sinkron Sekaligus (FS ➔ VPS)
+                                    <RefreshCw size={15} />
+                                    <span>Mulai Sinkron Sekaligus (FS → VPS)</span>
                                  </>
                               )}
                            </button>
@@ -13602,18 +13600,18 @@ if (filterPackingShift !== 'ALL') {
                            <button
                               onClick={handleSyncFirestoreToSupabaseByDayRange}
                               disabled={isSyncingFs || isVerifyingFs}
-                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              className="w-full sm:w-auto h-10 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md shadow-indigo-600/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs shrink-0 cursor-pointer"
                               title="Sinkronisasi Firestore ke Supabase VPS per hari dengan Auto-Retry"
                            >
                               {isSyncingFs ? (
                                  <>
-                                    <Loader2 size={18} className="animate-spin" />
-                                    Menyinkronkan Per Hari...
+                                    <Loader2 size={15} className="animate-spin" />
+                                    <span>Menyinkronkan Per Hari...</span>
                                  </>
                               ) : (
                                  <>
-                                    <CalendarIcon size={18} />
-                                    📅 Sinkron Rentang Per Hari (FS ➔ VPS)
+                                    <CalendarIcon size={15} />
+                                    <span>Sinkron Rentang Per Hari (FS → VPS)</span>
                                  </>
                               )}
                            </button>
@@ -13623,18 +13621,18 @@ if (filterPackingShift !== 'ALL') {
                            <button
                               onClick={handleSyncSupabaseToFirestore}
                               disabled={isSyncingFs || isVerifyingFs}
-                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              className="w-full sm:w-auto h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-md shadow-amber-600/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs shrink-0 cursor-pointer"
                               title="Sinkronisasi data Supabase ke Firestore sekaligus"
                            >
                               {isSyncingFs ? (
                                  <>
-                                    <Loader2 size={18} className="animate-spin" />
-                                    Menyinkronkan ke Firestore...
+                                    <Loader2 size={15} className="animate-spin" />
+                                    <span>Menyinkronkan ke Firestore...</span>
                                  </>
                               ) : (
                                  <>
-                                    <RefreshCw size={18} />
-                                    🚀 Mulai Sinkron Sekaligus (VPS ➔ FS)
+                                    <RefreshCw size={15} />
+                                    <span>Mulai Sinkron Sekaligus (VPS → FS)</span>
                                  </>
                               )}
                            </button>
@@ -13642,18 +13640,18 @@ if (filterPackingShift !== 'ALL') {
                            <button
                               onClick={handleSyncSupabaseToFirestoreByDayRange}
                               disabled={isSyncingFs || isVerifyingFs}
-                              className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                              className="w-full sm:w-auto h-10 px-4 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl shadow-md shadow-teal-600/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs shrink-0 cursor-pointer"
                               title="Sinkronisasi Supabase ke Firestore per hari dengan Auto-Retry"
                            >
                               {isSyncingFs ? (
                                  <>
-                                    <Loader2 size={18} className="animate-spin" />
-                                    Menyinkronkan Per Hari...
+                                    <Loader2 size={15} className="animate-spin" />
+                                    <span>Menyinkronkan Per Hari...</span>
                                  </>
                               ) : (
                                  <>
-                                    <CalendarIcon size={18} />
-                                    📅 Sinkron Rentang Per Hari (VPS ➔ FS)
+                                    <CalendarIcon size={15} />
+                                    <span>Sinkron Rentang Per Hari (VPS → FS)</span>
                                  </>
                               )}
                            </button>
@@ -13663,25 +13661,25 @@ if (filterPackingShift !== 'ALL') {
                      <button
                         onClick={() => handleVerifyAndMatchData()}
                         disabled={isSyncingFs || isVerifyingFs}
-                        className="w-full sm:w-auto h-11 px-5 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white font-bold rounded-xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm shrink-0 cursor-pointer"
+                        className="w-full sm:w-auto h-10 px-4 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-md shadow-purple-600/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-xs shrink-0 cursor-pointer"
                         title="Verifikasi & Bandingkan Data Supabase VPS vs Firestore"
                      >
                         {isVerifyingFs ? (
                            <>
-                              <Loader2 size={18} className="animate-spin" />
-                              Memeriksa Data...
+                              <Loader2 size={15} className="animate-spin" />
+                              <span>Memeriksa Data...</span>
                            </>
                         ) : (
                            <>
-                              <Search size={18} />
-                              🔍 Cek & Match Data
+                              <Search size={15} />
+                              <span>Cek & Match Data</span>
                            </>
                         )}
                      </button>
                   </div>
 
                   {syncStatusMsgFs && (
-                     <div className="text-xs font-medium text-gray-300 bg-black/40 px-3.5 py-2 rounded-lg border border-gray-800 max-w-full truncate text-center sm:text-left">
+                     <div className="text-xs font-medium text-slate-300 bg-slate-950/70 px-3 py-1.5 rounded-lg border border-slate-800 max-w-full truncate text-center sm:text-left">
                         {syncStatusMsgFs}
                      </div>
                   )}
@@ -13689,19 +13687,19 @@ if (filterPackingShift !== 'ALL') {
 
                {/* Visual Progress Bar Section */}
                {(isSyncingFs || syncTotalCountFs > 0) && (
-                  <div className="mt-4 sm:mt-5 p-3.5 sm:p-4 bg-black/40 border border-orange-500/20 rounded-xl space-y-3">
+                  <div className="mt-4 p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2.5">
                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs font-bold gap-1 sm:gap-2">
-                        <div className="flex items-center gap-2 text-orange-400">
-                           <RefreshCw size={14} className={isSyncingFs ? "animate-spin" : ""} />
+                        <div className="flex items-center gap-2 text-amber-400">
+                           <RefreshCw size={13} className={isSyncingFs ? "animate-spin" : ""} />
                            <span>Progress Sinkronisasi Batch</span>
                            {syncBatchTotalFs > 0 && (
-                              <span className="text-gray-400 font-normal">
+                              <span className="text-slate-400 font-normal">
                                  (Batch {syncBatchCurrentFs} dari {syncBatchTotalFs})
                               </span>
                            )}
                         </div>
                         <div className="flex items-center gap-3 font-mono">
-                           <span className="text-gray-300">
+                           <span className="text-slate-300">
                               {syncProcessedCountFs} / {syncTotalCountFs} Data
                            </span>
                            <span className="text-amber-400 font-extrabold text-sm">{syncProgressFs}%</span>
@@ -13709,12 +13707,12 @@ if (filterPackingShift !== 'ALL') {
                      </div>
 
                      {/* Progress Bar Container */}
-                     <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden p-0.5 border border-gray-700/60">
+                     <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/60">
                         <div
                            className={`h-full rounded-full transition-all duration-300 relative overflow-hidden shadow-sm ${
                               syncDirection === 'FS_TO_SB'
                                  ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-300'
-                                 : 'bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-300'
+                                 : 'bg-gradient-to-r from-amber-500 via-orange-400 to-yellow-300'
                            }`}
                            style={{ width: `${syncProgressFs}%` }}
                         >
@@ -13726,20 +13724,18 @@ if (filterPackingShift !== 'ALL') {
 
                      {/* Live Role Breakdown Summary */}
                      {Object.keys(syncRoleBreakdownFs).length > 0 && (
-                        <div className="mt-3 p-3 bg-gray-900/90 border border-gray-700/80 rounded-xl">
-                           <div className="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2 flex items-center justify-between">
-                              <span>📊 Rincian Live Per Role ({syncStartDate === syncEndDate ? syncStartDate : `${syncStartDate} s/d ${syncEndDate}`}):</span>
-                              <span className="text-amber-400 text-xs font-bold">Total: {syncTotalCountFs.toLocaleString()} Data</span>
+                        <div className="mt-3 p-3 bg-slate-900 border border-slate-800 rounded-xl">
+                           <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
+                              <span className="flex items-center gap-1.5">
+                                 <BarChart3 size={13} className="text-amber-400" />
+                                 Rincian Live Per Role ({syncStartDate === syncEndDate ? syncStartDate : `${syncStartDate} s/d ${syncEndDate}`})
+                              </span>
+                              <span className="text-amber-400 text-xs font-bold font-mono">Total: {syncTotalCountFs.toLocaleString()} Data</span>
                            </div>
                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                               {Object.entries(syncRoleBreakdownFs).map(([roleName, count]) => (
-                                 <div key={roleName} className="bg-black/60 p-2 rounded-lg border border-gray-800 text-center">
-                                    <span className="text-[10px] text-gray-400 font-bold block truncate">
-                                       {(roleName === 'PACKING' || roleName === 'PACKING_2') && '📦 '}
-                                       {roleName === 'CHECKER' && '📋 '}
-                                       {roleName === 'PICKER' && '🛒 '}
-                                       {roleName === 'OJOL' && '🛵 '}
-                                       {roleName === 'GUDANG' && '🏭 '}
+                                 <div key={roleName} className="bg-slate-950 p-2 rounded-lg border border-slate-800 text-center">
+                                    <span className="text-[10px] text-slate-400 font-bold block truncate">
                                        {roleName}
                                     </span>
                                     <span className="text-sm font-black text-amber-300 font-mono">{count.toLocaleString()}</span>
@@ -16515,7 +16511,6 @@ if (filterPackingShift !== 'ALL') {
 
                         {activeView === 'SEARCH_ALL' && (
                            <div className="w-full h-full min-h-full bg-white dark:bg-gray-800 flex flex-col overflow-y-auto">
-                              {renderSyncDataPanel()}
                               {/* Hero Search Section */}
                               <div className="p-4 sm:p-6 border-b border-gray-200/80 dark:border-gray-700/80 bg-gradient-to-b from-indigo-50/50 via-white to-gray-50/30 dark:from-indigo-950/20 dark:via-gray-800 dark:to-gray-900/30 shrink-0">
                                  <div className="max-w-7xl mx-auto w-full space-y-4">
@@ -16546,13 +16541,14 @@ if (filterPackingShift !== 'ALL') {
                                              onClick={() => setShowFsSyncDevMode(prev => !prev)}
                                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
                                                 showFsSyncDevMode
-                                                   ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-orange-400 shadow-sm shadow-orange-500/20'
-                                                   : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:border-orange-400'
+                                                   ? 'bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-500/25'
+                                                   : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:border-amber-400'
                                              }`}
                                              title="Buka / Tutup Panel Sinkronisasi Data Firestore ⇄ Supabase VPS"
                                           >
                                              <RefreshCw size={13} className={isSyncingFs ? 'animate-spin' : ''} />
                                              <span className="font-bold">Sinkronisasi Data</span>
+                                             {showFsSyncDevMode ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                                           </button>
                                           <div className="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-0.5" />
                                           <button
@@ -16596,6 +16592,9 @@ if (filterPackingShift !== 'ALL') {
                                           </button>
                                        </div>
                                     </div>
+
+                                    {/* Panel Sinkronisasi Data (Muncul ke bawah saat tombol diklik) */}
+                                    {renderSyncDataPanel()}
 
                                     {/* Mode Switcher: Single vs Pencarian Massal */}
                                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -17225,7 +17224,6 @@ if (filterPackingShift !== 'ALL') {
 
                         {activeView === 'SEARCH_ALL_FIRESTORE' && (
                            <div className="w-full h-full min-h-full bg-white dark:bg-gray-800 flex flex-col overflow-y-auto">
-                              {renderSyncDataPanel()}
 
                               {/* HEADER & SEARCH TOOLBAR */}
                               <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/50 shrink-0">
