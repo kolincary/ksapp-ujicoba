@@ -4247,12 +4247,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       isOnlyAdmin && (
          hasAutoDevModeFromDevice ||
          showSecretMenu ||
-         showFsSyncDevMode ||
          (typeof window !== 'undefined' && (
             localStorage.getItem('showSecretMenu') === 'true' ||
             localStorage.getItem('isDevModeNew') === 'true' ||
             localStorage.getItem('showFakeReportMenu') === 'true'
          )) ||
+         (globalSearchTerm && globalSearchTerm.toLowerCase().includes('devmodenew')) ||
          (batchSearch && batchSearch.toLowerCase().includes('devmodenew')) ||
          (packingSearch && packingSearch.toLowerCase().includes('devmodenew')) ||
          (compLogistikSearch && compLogistikSearch.toLowerCase().includes('devmodenew')) ||
@@ -13392,7 +13392,7 @@ if (filterPackingShift !== 'ALL') {
 
    // Panel Sinkronisasi Data Dua Arah: Firestore ⇄ Supabase VPS
    const renderSyncDataPanel = () => {
-      if (!showFsSyncDevMode) return null;
+      if (!isDevModeNew || !showFsSyncDevMode) return null;
 
       return (
          <div className="w-full shrink-0 animate-[fadeIn_0.2s_ease-out]">
@@ -16536,21 +16536,25 @@ if (filterPackingShift !== 'ALL') {
 
                                        {/* Layout Switcher */}
                                        <div className="flex items-center bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl border border-gray-200 dark:border-gray-600 self-end sm:self-auto h-10 gap-1">
-                                          <button
-                                             type="button"
-                                             onClick={() => setShowFsSyncDevMode(prev => !prev)}
-                                             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                                                showFsSyncDevMode
-                                                   ? 'bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-500/25'
-                                                   : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:border-amber-400'
-                                             }`}
-                                             title="Buka / Tutup Panel Sinkronisasi Data Firestore ⇄ Supabase VPS"
-                                          >
-                                             <RefreshCw size={13} className={isSyncingFs ? 'animate-spin' : ''} />
-                                             <span className="font-bold">Sinkronisasi Data</span>
-                                             {showFsSyncDevMode ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                                          </button>
-                                          <div className="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-0.5" />
+                                          {isDevModeNew && (
+                                             <>
+                                                <button
+                                                   type="button"
+                                                   onClick={() => setShowFsSyncDevMode(prev => !prev)}
+                                                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                                                      showFsSyncDevMode
+                                                         ? 'bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-500/25'
+                                                         : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:border-amber-400'
+                                                   }`}
+                                                   title="Buka / Tutup Panel Sinkronisasi Data Firestore ⇄ Supabase VPS"
+                                                >
+                                                   <RefreshCw size={13} className={isSyncingFs ? 'animate-spin' : ''} />
+                                                   <span className="font-bold">Sinkronisasi Data</span>
+                                                   {showFsSyncDevMode ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                                </button>
+                                                <div className="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-0.5" />
+                                             </>
+                                          )}
                                           <button
                                              type="button"
                                              onClick={() => setGlobalSearchViewLayout('AUTO')}
@@ -16593,8 +16597,8 @@ if (filterPackingShift !== 'ALL') {
                                        </div>
                                     </div>
 
-                                    {/* Panel Sinkronisasi Data (Muncul ke bawah saat tombol diklik) */}
-                                    {renderSyncDataPanel()}
+                                    {/* Panel Sinkronisasi Data (Muncul ke bawah saat tombol diklik & devmodenew aktif) */}
+                                    {isDevModeNew && renderSyncDataPanel()}
 
                                     {/* Mode Switcher: Single vs Pencarian Massal */}
                                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -16657,7 +16661,19 @@ if (filterPackingShift !== 'ALL') {
                                              <input
                                                 type="text"
                                                 value={globalSearchTerm}
-                                                onChange={(e) => setGlobalSearchTerm(e.target.value)}
+                                                onChange={(e) => {
+                                                   const val = e.target.value;
+                                                   setGlobalSearchTerm(val);
+                                                   if (val.toLowerCase().includes('devmodenew')) {
+                                                      setGlobalSearchTerm(val.replace(/devmodenew/gi, '').trim());
+                                                      if (!isOnlyAdmin) return;
+                                                      const isCurrentlyOn = localStorage.getItem('isDevModeNew') === 'true';
+                                                      const newState = !isCurrentlyOn;
+                                                      localStorage.setItem('isDevModeNew', String(newState));
+                                                      setShowFsSyncDevMode(newState);
+                                                      setSuccessToast(newState ? "Dev Mode Aktif!" : "Dev Mode Dinonaktifkan");
+                                                   }
+                                                }}
                                                 onKeyDown={(e) => e.key === 'Enter' && handleGlobalSearch()}
                                                 placeholder="Ketik no resi / barcode (tekan Enter untuk mencari)..."
                                                 className="w-full h-11 sm:h-12 pl-10 sm:pl-12 pr-10 sm:pr-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm sm:text-base font-mono placeholder:font-sans transition-all shadow-2xs"
