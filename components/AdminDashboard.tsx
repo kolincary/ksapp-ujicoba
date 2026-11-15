@@ -6669,14 +6669,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          else if (isLeader2) query = query.or(`barcode.ilike.%${packingSearch}%,leader_name.ilike.%${packingSearch}%`);
          else query = query.or(`barcode.ilike.%${packingSearch}%,employee_name.ilike.%${packingSearch}%`);
       }
-      if (options?.leaderBarcodes) {
+      if (options?.leaderBarcodes && options.leaderBarcodes.length > 0) {
          query = query.in('barcode', options.leaderBarcodes);
       }
 
       if (filterPackingStaff !== 'ALL') {
          if (isLeaderPending) query = query.or(`leader_name.eq.${filterPackingStaff},leader_profile.eq.${filterPackingStaff}`);
          else if (isLeader2) query = query.eq('leader_name', filterPackingStaff);
-         else if (targetView !== 'PICKER_DATA') query = query.eq('employee_name', filterPackingStaff);
+         else if (targetView === 'PICKER_DATA') {
+            if (!options?.leaderBarcodes || options.leaderBarcodes.length === 0) {
+               query = query.ilike('employee_name', filterPackingStaff.trim());
+            }
+         } else {
+            query = query.ilike('employee_name', filterPackingStaff.trim());
+         }
       }
 
       // Cancel Filter Logic
@@ -6777,7 +6783,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (activeView === 'PACKING_2_DATA' && !hasPermission('view_packing_2')) return;
       if ((activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_REPORT' || activeView === 'GUDANG_BUNDLING') && !hasPermission('view_gudang')) return;
       if (activeView === 'SORTIR_DATA' && !hasPermission('view_sortir') && !hasPermission('view_packing')) return;
-      if ((activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA') && !hasPermission('view_picker')) return;
+      if (activeView === 'PICKER_DATA' && !hasPermission('view_picker')) return;
+      if (activeView === 'CHECKER_DATA' && !hasPermission('view_checker')) return;
       if (activeView === 'LOGISTIK_DATA' && !hasPermission('view_logistik')) return;
       if (activeView === 'LEADER_2_DATA' && !hasPermission('view_leader_2')) return;
       if (activeView === 'LEADER_PENDING_ADMIN' && !hasPermission('view_leader_2')) return;
@@ -6813,10 +6820,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          }
 
          let leaderBarcodes: string[] | null = null;
-         if ((activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA') && filterPackingStaff !== 'ALL') {
+         if (activeView === 'PICKER_DATA' && filterPackingStaff !== 'ALL') {
             const { data: ld } = await supabase.from('leader_scan_2').select('barcode').eq('leader_profile', filterPackingStaff);
-            if (ld) leaderBarcodes = ld.map((d: any) => d.barcode);
-            else leaderBarcodes = ['NO_MATCH_XYZ_123']; // Prevent empty array from fetching all
+            if (ld && ld.length > 0) {
+               leaderBarcodes = ld.map((d: any) => d.barcode);
+            }
          }
 
          let sbData: any[] = [];
@@ -14608,7 +14616,20 @@ if (filterPackingShift !== 'ALL') {
                                                 setPackingSearch(val);
                                              }
                                           }}
-                                          placeholder={`Search ${activeView === 'OJOL_DATA' ? 'Ojol' : (activeView === 'SORTIR_DATA' ? 'Sortir' : (activeView === 'LOGISTIK_DATA' ? 'Logistik' : (activeView === 'GUDANG_PENDING' ? 'Pending Scans' : (activeView === 'GUDANG_READY' ? 'Resi Ready' : (activeView === 'GUDANG_REPORT' ? 'Gudang Report' : (activeView === 'GUDANG_BUNDLING' ? 'Bundling' : (activeView === 'SCAN_ALL' ? 'All Data' : ((activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA') ? 'Picker' : (activeView === 'LEADER_2_DATA' ? 'Rekap Detail Leader' : (activeView === 'LEADER_PENDING_ADMIN' ? 'Pending Leader' : 'Packing'))))))))))}...`}
+                                          placeholder={`Search ${
+                                             activeView === 'OJOL_DATA' ? 'Ojol' :
+                                             activeView === 'SORTIR_DATA' ? 'Sortir' :
+                                             activeView === 'LOGISTIK_DATA' ? 'Logistik' :
+                                             activeView === 'GUDANG_PENDING' ? 'Pending Scans' :
+                                             activeView === 'GUDANG_READY' ? 'Resi Ready' :
+                                             activeView === 'GUDANG_REPORT' ? 'Gudang Report' :
+                                             activeView === 'GUDANG_BUNDLING' ? 'Bundling' :
+                                             activeView === 'SCAN_ALL' ? 'All Data' :
+                                             activeView === 'PICKER_DATA' ? 'Picker' :
+                                             activeView === 'CHECKER_DATA' ? 'Checker' :
+                                             activeView === 'LEADER_2_DATA' ? 'Rekap Detail Leader' :
+                                             activeView === 'LEADER_PENDING_ADMIN' ? 'Pending Leader' : 'Packing'
+                                          }...`}
                                           className="w-full h-full"
                                        />
                                     </div>
@@ -14617,16 +14638,16 @@ if (filterPackingShift !== 'ALL') {
                                  {/* ROW 2: Shifts, Staff, 50% Cut, Salin Barcode, Reset, Export (All h-11) */}
                                  <div className="grid grid-cols-12 gap-3 items-center">
                                     {/* Shift Filter (h-11) */}
-                                    {['PACKING_DATA', 'PACKING_2_DATA', 'SORTIR_DATA', 'PICKER_DATA', 'LEADER_2_DATA', 'LEADER_PENDING_ADMIN', 'OJOL_DATA', 'LOGISTIK_DATA', 'SCAN_ALL'].includes(activeView) && (
+                                    {['PACKING_DATA', 'PACKING_2_DATA', 'SORTIR_DATA', 'PICKER_DATA', 'CHECKER_DATA', 'LEADER_2_DATA', 'LEADER_PENDING_ADMIN', 'OJOL_DATA', 'LOGISTIK_DATA', 'SCAN_ALL'].includes(activeView) && (
                                        <div className="col-span-6 sm:col-span-4 md:col-span-3 lg:col-span-2 relative h-11">
                                           <Filter size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none" />
                                           <select
-                                             value={(activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA') ? 'Leader' : (activeView === 'OJOL_DATA' ? filterOjolShift : filterPackingShift)}
+                                             value={activeView === 'PICKER_DATA' ? 'Leader' : (activeView === 'OJOL_DATA' ? filterOjolShift : filterPackingShift)}
                                              onChange={(e) => activeView === 'OJOL_DATA' ? setFilterOjolShift(e.target.value) : setFilterPackingShift(e.target.value)}
-                                             className={`w-full pl-10 pr-8 h-full bg-gray-50/80 hover:bg-white dark:bg-gray-800/90 dark:hover:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-xl text-xs sm:text-sm font-bold shadow-2xs appearance-none focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 cursor-pointer ${(activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA') ? 'opacity-70 cursor-not-allowed' : ''}`}
-                                             disabled={(activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA')}
+                                             className={`w-full pl-10 pr-8 h-full bg-gray-50/80 hover:bg-white dark:bg-gray-800/90 dark:hover:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-xl text-xs sm:text-sm font-bold shadow-2xs appearance-none focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 cursor-pointer ${activeView === 'PICKER_DATA' ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                             disabled={activeView === 'PICKER_DATA'}
                                           >
-                                             {(activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA') ? (
+                                             {activeView === 'PICKER_DATA' ? (
                                                 <option value="Leader">Leader</option>
                                              ) : (
                                                 <>
@@ -14656,7 +14677,7 @@ if (filterPackingShift !== 'ALL') {
                                     )}
 
                                     {/* Manual / Packing List Filter - PICKER_DATA ONLY */}
-                                    {(activeView === 'PICKER_DATA' || activeView === 'CHECKER_DATA') && (
+                                    {activeView === 'PICKER_DATA' && (
                                        <div className="col-span-6 sm:col-span-4 md:col-span-3 lg:col-span-2 relative h-11">
                                           <ScanLine size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none" />
                                           <select
