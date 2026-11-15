@@ -1,5 +1,25 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+// Shared isolated in-memory storage to prevent GoTrueClient collision
+export const isolatedStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {}
+};
+
+// Extract project ref from URL (e.g. https://abcdef.supabase.co -> abcdef)
+export function extractProjectRef(url: string): string {
+  try {
+    const clean = (url || '').trim().replace(/^https?:\/\//, '');
+    if (clean.includes('103.52.114.209') || clean.includes('trycloudflare') || clean.includes('kalindo')) {
+      return 'VPS Supabase (103.52.114.209)';
+    }
+    return clean.split('.')[0] || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 // Explicit Self-Hosted VPS Supabase credentials (HTTPS Tunnel & Direct IP fallback)
 export const VPS_URL = 'https://light-specialty-cadillac-successful.trycloudflare.com';
 export const VPS_DIRECT_IP_URL = 'http://103.52.114.209:8000';
@@ -21,11 +41,7 @@ export const supabaseLeader: SupabaseClient = createClient(DEFAULT_NEW_URL, DEFA
     autoRefreshToken: false,
     detectSessionInUrl: false,
     storageKey: `sb-lead-${extractProjectRef(DEFAULT_NEW_URL)}`,
-    storage: {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {}
-    }
+    storage: isolatedStorage
   }
 });
 
@@ -42,19 +58,6 @@ export interface ActiveSupabaseConfig {
   projectRef: string;
   isCustom: boolean;
 }
-
-// Extract project ref from URL (e.g. https://abcdef.supabase.co -> abcdef)
-export const extractProjectRef = (url: string): string => {
-  try {
-    const clean = (url || '').trim().replace(/^https?:\/\//, '');
-    if (clean.includes('103.52.114.209') || clean.includes('trycloudflare') || clean.includes('kalindo')) {
-      return 'VPS Supabase (103.52.114.209)';
-    }
-    return clean.split('.')[0] || 'unknown';
-  } catch {
-    return 'unknown';
-  }
-};
 
 // Helper to get config
 export const getConfig = (): ActiveSupabaseConfig => {
@@ -201,12 +204,6 @@ export let rawSupabase: SupabaseClient = createClient(activeConfig.url, activeCo
 
 // PRIMARY BACKEND: Supabase VPS (http://103.52.114.209:8000)
 export let supabase: SupabaseClient = rawSupabase;
-
-const isolatedStorage = {
-  getItem: () => null,
-  setItem: () => {},
-  removeItem: () => {}
-};
 
 export let supabaseNew: SupabaseClient = createClient(activeConfig.newUrl, activeConfig.newKey, {
   auth: {
