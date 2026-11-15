@@ -809,7 +809,7 @@ const App: React.FC = () => {
             last_logout: new Date().toISOString()
           })
           .eq('user_email', emailToLog)
-          .catch(() => {});
+          .then(() => {}, () => {});
       } else if (adminToLog) {
         stopDeviceTracking(adminToLog).catch(() => {});
       }
