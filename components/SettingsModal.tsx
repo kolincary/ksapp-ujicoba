@@ -484,24 +484,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
 
                   {/* Keypad Grid 3 Kolom */}
-                  <div className="mt-2 grid grid-cols-3 gap-3">
+                  <div className="mt-2 grid grid-cols-3 gap-x-4 sm:gap-x-6 gap-y-3.5 sm:gap-y-4.5 w-full max-w-[280px] sm:max-w-[320px] justify-items-center">
                      {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
                         <button
                            key={num}
                            type="button"
                            onClick={() => handlePinInput(num)}
                            disabled={isLoading || showSuccessToast}
-                           className="pm-focus pm-key grid h-14 w-14 place-items-center rounded-full border text-2xl font-medium transition active:scale-95 disabled:opacity-60 md:h-16 md:w-16 cursor-pointer"
+                           className="pm-focus pm-key grid w-16 h-16 sm:w-20 sm:h-20 place-items-center rounded-full border text-2xl sm:text-3xl font-medium transition active:scale-95 disabled:opacity-60 cursor-pointer"
                         >
                            {num}
                         </button>
                      ))}
-                     <span />
+                     <div className="w-16 h-16 sm:w-20 sm:h-20" />
                      <button
                         type="button"
                         onClick={() => handlePinInput('0')}
                         disabled={isLoading || showSuccessToast}
-                        className="pm-focus pm-key grid h-14 w-14 place-items-center rounded-full border text-2xl font-medium transition active:scale-95 disabled:opacity-60 md:h-16 md:w-16 cursor-pointer"
+                        className="pm-focus pm-key grid w-16 h-16 sm:w-20 sm:h-20 place-items-center rounded-full border text-2xl sm:text-3xl font-medium transition active:scale-95 disabled:opacity-60 cursor-pointer"
                      >
                         0
                      </button>
@@ -510,9 +510,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onClick={handlePinDelete}
                         disabled={isLoading || showSuccessToast}
                         aria-label="Hapus digit terakhir"
-                        className="pm-focus pm-muted grid h-14 w-14 place-items-center rounded-full hover:opacity-70 disabled:opacity-40 md:h-16 md:w-16 cursor-pointer"
+                        className="pm-focus pm-muted grid w-16 h-16 sm:w-20 sm:h-20 place-items-center rounded-full hover:opacity-70 disabled:opacity-40 cursor-pointer"
                      >
-                        <Delete size={22} />
+                        <Delete size={26} />
                      </button>
                   </div>
 
