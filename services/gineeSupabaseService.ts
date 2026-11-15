@@ -986,20 +986,22 @@ export async function syncGineeCancelledOrdersToKalindo(
 
     const uniqueGineeMap = new Map<string, any>();
 
-    // 1. Ambil pesanan CANCELLED dari ginee_orders (7 hari terakhir) lalu cocokkan dengan batch_items (Label telah dicetak)
+    // 1. Ambil pesanan CANCELLED dari ginee_orders lalu cocokkan dengan batch_items (Label telah dicetak)
     // Karena endpoint list Ginee API tidak mengembalikan nomor resi kurir & status cetak label,
     // tabel batch_items (hasil cetak label admin) adalah sumber pasti untuk AWB + status "Label telah dicetak".
-    const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
+    const syncDays = force ? 7 : 3;
+    const sinceDate = new Date(Date.now() - syncDays * 86400000).toISOString();
     const gineeCancelRows: any[] = [];
-    const PAGE_LIMIT = 1000;
-    for (let page = 0; page < 20; page++) {
+    const PAGE_LIMIT = 500;
+    const maxPages = force ? 4 : 2;
+    for (let page = 0; page < maxPages; page++) {
       const fromIdx = page * PAGE_LIMIT;
       const toIdx = fromIdx + PAGE_LIMIT - 1;
       const { data: pageRows, error: pageErr } = await supabase
         .from(GINEE_ORDERS_TABLE)
         .select('order_id, channel_order_sn, tracking_no, status, shop_name, channel, buyer_note, updated_at, raw_payload')
         .eq('status', 'CANCELLED')
-        .gte('updated_at', since7d)
+        .gte('updated_at', sinceDate)
         .order('updated_at', { ascending: false })
         .range(fromIdx, toIdx);
 
@@ -1061,7 +1063,7 @@ export async function syncGineeCancelledOrdersToKalindo(
       }
 
       // Cross-check batch_items secara paralel (8 slice x 100 order_id) untuk menemukan label yang sudah dicetak
-      const lookupIds = Array.from(lookupIdsSet);
+      const lookupIds = Array.from(lookupIdsSet).slice(0, force ? 2000 : 800);
       const idSlices: string[][] = [];
       for (let i = 0; i < lookupIds.length; i += 100) {
         idSlices.push(lookupIds.slice(i, i + 100));

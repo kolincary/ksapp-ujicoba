@@ -10470,21 +10470,10 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
    const fetchCancelledOrders = async (shouldSyncGinee = false) => {
       setIsLoadingCancelData(true);
       try {
-         // 0. Auto-Sync dari Ginee Supabase ke Supabase Utama (HANYA jika parameter true dan fitur sinkronisasi sedang AKTIF)
-         if (shouldSyncGinee) {
-            try {
-               const syncActive = await isGineeSyncEnabled();
-               if (syncActive) {
-                  await syncGineeCancelledOrdersToKalindo(supabase);
-               }
-            } catch (syncErr) {
-               console.warn('[AdminDashboard] Auto-sync Ginee cancel warning:', syncErr);
-            }
-         }
-
          const targetDate = (activeView === 'BATCH_DATA' || activeView === 'BATCH_DATA_2' || activeView === 'BATCH_DATA_3') ? batchDateFilter : cancelDateFilter;
          if (!targetDate) {
             setCancelledOrders([]);
+            setIsLoadingCancelData(false);
             return;
          }
          const startOfDay = new Date(targetDate + 'T00:00:00').toISOString();
@@ -10510,6 +10499,25 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
          console.error("Error fetching cancelled orders:", err);
       } finally {
          setIsLoadingCancelData(false);
+      }
+
+      // Auto-Sync dari Ginee ke Kalindo di latar belakang (ASYNCHRONOUS NON-BLOCKING)
+      // Tidak pernah menahan isLoadingCancelData ataupun membuat UI muter terus!
+      if (shouldSyncGinee) {
+         queueMicrotask(async () => {
+            try {
+               const syncActive = await isGineeSyncEnabled();
+               if (syncActive) {
+                  const res = await syncGineeCancelledOrdersToKalindo(supabase);
+                  if (res && res.newInserted && res.newInserted > 0) {
+                     // Jika ada data cancel baru yang ditemukan di Ginee, perbarui list tanpa memblokir
+                     fetchCancelledOrders(false);
+                  }
+               }
+            } catch (syncErr) {
+               console.warn('[AdminDashboard] Auto-sync Ginee cancel warning:', syncErr);
+            }
+         });
       }
    };
 
