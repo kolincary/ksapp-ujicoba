@@ -14367,7 +14367,7 @@ if (filterPackingShift !== 'ALL') {
                                              >
                                                 <span>⚡ 7 Hari Terakhir</span>
                                              </button>
-                                          )}
+                                           )}
                                        </div>
 
                                        {dateFilterMode === 'RANGE' && (
@@ -25295,7 +25295,8 @@ LXAD-1234567890`}
                                           </div>
 
                                           {/* Toggle Button */}
-                                          <button
+                                          {isDevModeNew && (
+                                             <button
                                              onClick={handleToggleGineeSync}
                                              disabled={isTogglingGineeSync}
                                              className={`h-10 px-3.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs border ${isGineeSyncActive ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700' : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700'} disabled:opacity-50`}
@@ -25308,6 +25309,7 @@ LXAD-1234567890`}
                                              )}
                                              <span>{isGineeSyncActive ? 'Matikan Sinkron' : 'Aktifkan Sinkron'}</span>
                                           </button>
+                                          )}
 
                                           {/* Manual Sync Button */}
                                           <button
