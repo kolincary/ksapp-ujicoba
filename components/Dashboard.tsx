@@ -3159,7 +3159,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             error = retryRes.error;
          }
 
-         // BACKUP: UPSERT TO DEDICATED LEADER SUPABASE (ymolrxscthxxtlmnxmob)
+         // BACKUP: UPSERT TO DEDICATED LEADER SUPABASE
          try {
             const bRes = await supabaseLeader
                .from('leader_scan_2')
@@ -3259,7 +3259,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             .delete()
             .eq('barcode', pendingDeleteBarcode);
 
-         // BACKUP: DELETE FROM DEDICATED LEADER SUPABASE (ymolrxscthxxtlmnxmob)
+         // BACKUP: DELETE FROM DEDICATED LEADER SUPABASE
          try {
             await supabaseLeader
                .from('leader_scan_2')
@@ -3346,7 +3346,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             .update({ scan_type: newType })
             .eq('barcode', pendingSwitchBarcode);
 
-         // BACKUP UPDATE TO DEDICATED LEADER SUPABASE (ymolrxscthxxtlmnxmob)
+         // BACKUP UPDATE TO DEDICATED LEADER SUPABASE
          try {
             await supabaseLeader
                .from('leader_scan_2')

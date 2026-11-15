@@ -15,8 +15,8 @@ export const STORAGE_BACKUP_KEY = 'ks_dual_backup_supabase_key';
 export const STORAGE_LAST_PURGE = 'last_backup_retention_run';
 
 // Default Secondary Supabase instance (Supabase Archive / Backup)
-export const DEFAULT_BACKUP_URL = 'https://ymolrxscthxxtlmnxmob.supabase.co';
-export const DEFAULT_BACKUP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inltb2xyeHNjdGh4eHRsbW54bW9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzNjgzNzgsImV4cCI6MjA3OTk0NDM3OH0.Hv64EHm_eZE3QHKN8QkdDFnYAQT1f_7KTDcaRoFobi8';
+export const DEFAULT_BACKUP_URL = 'https://eekxcrkgsnaatgivccso.supabase.co';
+export const DEFAULT_BACKUP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVla3hjcmtnc25hYXRnaXZjY3NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NTA4ODEsImV4cCI6MjEwNjMyNjg4MX0.SlP6pVN6YXROHqfyzxETin6w7UNAoNehazvCxrjjSyw';
 
 export interface BackupSupabaseConfig {
   url: string;
@@ -35,10 +35,10 @@ export const getBackupSupabaseConfig = (): BackupSupabaseConfig => {
   try {
     const savedUrl = localStorage.getItem(STORAGE_BACKUP_URL);
     const savedKey = localStorage.getItem(STORAGE_BACKUP_KEY);
-    if (savedUrl && savedUrl.trim().startsWith('http')) {
+    if (savedUrl && savedUrl.trim().startsWith('http') && !savedUrl.includes('ymolrxscthxxtlmnxmob')) {
       url = savedUrl.trim();
     }
-    if (savedKey && savedKey.trim().length > 10) {
+    if (savedKey && savedKey.trim().length > 10 && !savedKey.includes('ymolrxscthxxtlmnxmob')) {
       key = savedKey.trim();
     }
   } catch (e) {

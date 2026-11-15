@@ -11,12 +11,22 @@ export const FALLBACK_KEY = VPS_KEY;
 const DEFAULT_URL = VPS_URL;
 const DEFAULT_KEY = VPS_KEY;
 
-export const DEFAULT_NEW_URL = 'https://ymolrxscthxxtlmnxmob.supabase.co';
-export const DEFAULT_NEW_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inltb2xyeHNjdGh4eHRsbW54bW9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzNjgzNzgsImV4cCI6MjA3OTk0NDM3OH0.Hv64EHm_eZE3QHKN8QkdDFnYAQT1f_7KTDcaRoFobi8';
+export const DEFAULT_NEW_URL = 'https://eekxcrkgsnaatgivccso.supabase.co';
+export const DEFAULT_NEW_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVla3hjcmtnc25hYXRnaXZjY3NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NTA4ODEsImV4cCI6MjEwNjMyNjg4MX0.SlP6pVN6YXROHqfyzxETin6w7UNAoNehazvCxrjjSyw';
 
-// Dedicated Immutable Client for Leader Scan (ymolrxscthxxtlmnxmob)
+// Dedicated Immutable Client for Leader Scan
 export const supabaseLeader: SupabaseClient = createClient(DEFAULT_NEW_URL, DEFAULT_NEW_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storageKey: `sb-lead-${extractProjectRef(DEFAULT_NEW_URL)}`,
+    storage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {}
+    }
+  }
 });
 
 const DEFAULT_SPECIAL_OLD_URL = 'https://opdcyccwracapxfxisfw.supabase.co';
@@ -52,16 +62,16 @@ export const getConfig = (): ActiveSupabaseConfig => {
   // Bersihkan cache localStorage lama dan URL HTTP yang memicu Mixed Content
   try {
     const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    const keysToClean = ['active_supabase_url', 'active_supabase_key', 'supabase_url', 'supabase_key'];
+    const keysToClean = ['active_supabase_url', 'active_supabase_key', 'supabase_url', 'supabase_key', 'active_backup_supabase_url', 'active_backup_supabase_key', 'ks_dual_backup_supabase_url', 'ks_dual_backup_supabase_key'];
     keysToClean.forEach(k => {
       const val = localStorage.getItem(k);
       if (val) {
-        // Bersihkan tunnel lama yang sudah expired atau bukan tunnel aktif saat ini
-        if (val.includes('phd-meetings-aberdeen-jose') || (isHttps && val.includes('trycloudflare') && val !== VPS_URL)) {
+        // Bersihkan project lama yang mati atau tunnel lama yang sudah expired
+        if (val.includes('ymolrxscthxxtlmnxmob') || val.includes('phd-meetings-aberdeen-jose') || (isHttps && val.includes('trycloudflare') && val !== VPS_URL)) {
           localStorage.removeItem(k);
         } else if (isHttps && val.startsWith('http://')) {
           localStorage.removeItem(k);
-        } else if (!val.includes('103.52.114.209') && !val.includes('trycloudflare')) {
+        } else if (!val.includes('103.52.114.209') && !val.includes('trycloudflare') && !val.includes('eekxcrkgsnaatgivccso')) {
           localStorage.removeItem(k);
         }
       }
@@ -84,10 +94,10 @@ export const getConfig = (): ActiveSupabaseConfig => {
   let backupUrl = DEFAULT_NEW_URL;
   let backupKey = DEFAULT_NEW_KEY;
   try {
-    const sUrl = localStorage.getItem('active_backup_supabase_url');
-    const sKey = localStorage.getItem('active_backup_supabase_key');
-    if (sUrl && sUrl.trim().startsWith('http')) backupUrl = sUrl.trim();
-    if (sKey && sKey.trim().length > 10) backupKey = sKey.trim();
+    const sUrl = localStorage.getItem('active_backup_supabase_url') || localStorage.getItem('ks_dual_backup_supabase_url');
+    const sKey = localStorage.getItem('active_backup_supabase_key') || localStorage.getItem('ks_dual_backup_supabase_key');
+    if (sUrl && sUrl.trim().startsWith('http') && !sUrl.includes('ymolrxscthxxtlmnxmob')) backupUrl = sUrl.trim();
+    if (sKey && sKey.trim().length > 10 && !sKey.includes('ymolrxscthxxtlmnxmob')) backupKey = sKey.trim();
   } catch (e) {}
 
   return {
@@ -192,11 +202,29 @@ export let rawSupabase: SupabaseClient = createClient(activeConfig.url, activeCo
 // PRIMARY BACKEND: Supabase VPS (http://103.52.114.209:8000)
 export let supabase: SupabaseClient = rawSupabase;
 
+const isolatedStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {}
+};
+
 export let supabaseNew: SupabaseClient = createClient(activeConfig.newUrl, activeConfig.newKey, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storageKey: `sb-sec-${extractProjectRef(activeConfig.newUrl)}`,
+    storage: isolatedStorage
+  }
 });
 export let supabaseSpecialOld: SupabaseClient = createClient(activeConfig.specialOldUrl, activeConfig.specialOldKey, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storageKey: `sb-spec-${extractProjectRef(activeConfig.specialOldUrl)}`,
+    storage: isolatedStorage
+  }
 });
 
 /**
@@ -224,7 +252,8 @@ export const refreshSupabaseClients = () => {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
-      storageKey: `sb-sec-${extractProjectRef(activeConfig.newUrl)}`
+      storageKey: `sb-sec-${extractProjectRef(activeConfig.newUrl)}`,
+      storage: isolatedStorage
     }
   });
   supabaseSpecialOld = createClient(activeConfig.specialOldUrl, activeConfig.specialOldKey, {
@@ -232,7 +261,8 @@ export const refreshSupabaseClients = () => {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
-      storageKey: `sb-spec-${extractProjectRef(activeConfig.specialOldUrl)}`
+      storageKey: `sb-spec-${extractProjectRef(activeConfig.specialOldUrl)}`,
+      storage: isolatedStorage
     }
   });
 };
