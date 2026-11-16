@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import * as XLSX from 'xlsx';
 import { UserRole, UserPermissions, UserPins, AdminUser, Employee, AdminDashboardProps, UserManualInputAccess, AdminView, AdminShiftNote, AdminShiftNoteRead } from '../types';
 import { supabase, supabaseNew, supabaseLeader } from '../services/supabaseClient';
+import { replicateBackupDelete } from '../services/dualSupabaseService';
 import { gineeSupabase } from '../services/supabaseGineeClient';
 import { syncGineeCancelledOrdersToKalindo, safeIsoDate } from '../services/gineeSupabaseService';
 import { isValidAwbFormat } from '../services/gineeService';
@@ -2730,15 +2731,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const [scanAllWizardSearch, setScanAllWizardSearch] = useState('');
 
 
-   // 13. Dev Mode (ShowDev)
+   // 13. Dev Mode (ShowDev) & Data Gudang Admin
    const [isDevMode, setIsDevMode] = useState(false);
    const [devBuffer, setDevBuffer] = useState('');
    const [selectedGudangIds, setSelectedGudangIds] = useState<string[]>([]);
    const [isDeletingGudang, setIsDeletingGudang] = useState(false);
+   const [deleteGudangModal, setDeleteGudangModal] = useState<{
+      isOpen: boolean;
+      items: any[];
+   }>({ isOpen: false, items: [] });
+
+   const isGudangMenu = activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT' || activeView === 'GUDANG_BUNDLING';
+   const isGudangAdminAllowed = isOnlyAdmin && isGudangMenu;
 
    useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
-         if ((activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT')) {
+         if ((activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT' || activeView === 'GUDANG_BUNDLING')) {
             const key = e.key.toLowerCase();
             // Allow only letters for the buffer
             if (/^[a-z]$/.test(key)) {
@@ -2760,10 +2768,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return () => window.removeEventListener('keydown', handleKeyDown);
    }, [activeView]);
 
-   // Clear selection when view changes or dev mode resets
+   // Clear selection when view changes, page changes, or dev mode resets
    useEffect(() => {
       setSelectedGudangIds([]);
-   }, [activeView, isDevMode]);
+   }, [activeView, page, isDevMode]);
 
    // 13b. DevMode Secret Sync (Search Data 2: Supabase -> Firestore)
    const [showFsSyncDevMode, setShowFsSyncDevMode] = useState(false);
@@ -13076,25 +13084,39 @@ if (filterPackingShift !== 'ALL') {
    const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) { processCSVImport(e.target.files[0]); } };
    const handleFileDrop = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files && e.dataTransfer.files[0]) { processCSVImport(e.dataTransfer.files[0]); } };
 
-   // --- DEV MODE GUDANG DELETE ---
-   const handleBulkDeleteGudang = async () => {
-      if (selectedGudangIds.length === 0) return;
-      if (!confirm(`WARNING: Anda akan menghapus ${selectedGudangIds.length} data secara permanen dari database. Lanjutkan?`)) return;
+   // --- GUDANG DELETE (DUAL SUPABASE: VPS + CADANGAN) ---
+   const executeDeleteGudang = async (idsToDelete: string[]) => {
+      if (!isOnlyAdmin || idsToDelete.length === 0) return;
 
       setIsDeletingGudang(true);
       try {
-         const { error } = await supabase.from('scanned_items').delete().in('id', selectedGudangIds);
-         if (error) throw error;
+         // 1. VPS Delete (scanned_items)
+         const { error: vpsErr } = await supabase.from('scanned_items').delete().in('id', idsToDelete);
+         if (vpsErr) throw vpsErr;
 
-         // Refresh Data
-         setSuccessToast(`Berhasil menghapus ${selectedGudangIds.length} data.`);
-         setSelectedGudangIds([]);
-         fetchPackingData(); // Re-fetch current view
+         // 2. Backup Delete (Supabase Cadangan)
+         try {
+            await supabaseNew.from('scanned_items').delete().in('id', idsToDelete);
+         } catch (backupErr) {
+            console.warn('[DeleteGudang] Supabase Cadangan delete warning:', backupErr);
+         }
+         replicateBackupDelete('scanned_items', { column: 'id', inValues: idsToDelete });
+
+         setSuccessToast(`Berhasil menghapus ${idsToDelete.length} data gudang dari VPS dan Cadangan.`);
+         setSelectedGudangIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+         setDeleteGudangModal({ isOpen: false, items: [] });
+         fetchPackingData();
       } catch (err: any) {
-         alert("Gagal menghapus data: " + err.message);
+         alert("Gagal menghapus data: " + (err.message || err));
       } finally {
          setIsDeletingGudang(false);
       }
+   };
+
+   const handleBulkDeleteGudang = async () => {
+      if (selectedGudangIds.length === 0) return;
+      const selectedItems = packingData.filter(d => selectedGudangIds.includes(d.id));
+      setDeleteGudangModal({ isOpen: true, items: selectedItems });
    };
 
    // --- COMPARE LOGISTIK LOGIC ---
@@ -18433,11 +18455,11 @@ if (filterPackingShift !== 'ALL') {
                                           <table className="w-full text-left whitespace-nowrap">
                                              <thead className="bg-gray-50/90 dark:bg-gray-900/90 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
                                                 <tr>
-                                                    {(activeView === 'SCAN_ALL' || activeView === 'LEADER_2_DATA' || ((activeView === 'LOGISTIK_DATA' || activeView === 'LEADER_PENDING_ADMIN') && isDevModeNew) || ((activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT' || activeView === 'GUDANG_BUNDLING') && isDevMode)) && (
+                                                    {(activeView === 'SCAN_ALL' || activeView === 'LEADER_2_DATA' || ((activeView === 'LOGISTIK_DATA' || activeView === 'LEADER_PENDING_ADMIN') && isDevModeNew) || (isGudangMenu && (isDevMode || isOnlyAdmin))) && (
                                                       <th className="px-4 py-3.5 w-12 bg-gray-50/90 dark:bg-gray-900/90">
                                                          <button
                                                             onClick={() => {
-                                                               if (isDevMode && (activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT' || activeView === 'GUDANG_BUNDLING')) {
+                                                               if (isGudangMenu && (isOnlyAdmin || isDevMode)) {
                                                                   if (selectedGudangIds.length === packingData.length) setSelectedGudangIds([]);
                                                                   else setSelectedGudangIds(packingData.map(d => d.id as string));
                                                                } else {
@@ -18445,12 +18467,12 @@ if (filterPackingShift !== 'ALL') {
                                                                   else setSelectedScanIds(packingData.map(d => d.id as string));
                                                                }
                                                             }}
-                                                            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${(isDevMode ? selectedGudangIds.length : selectedScanIds.length) > 0 && (isDevMode ? selectedGudangIds.length : selectedScanIds.length) === packingData.length
+                                                            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.length : selectedScanIds.length) > 0 && ((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.length : selectedScanIds.length) === packingData.length
                                                                ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
                                                                }`}
                                                          >
-                                                            {(isDevMode ? selectedGudangIds.length : selectedScanIds.length) > 0 && (isDevMode ? selectedGudangIds.length : selectedScanIds.length) === packingData.length && <Check size={12} />}
-                                                            {(isDevMode ? selectedGudangIds.length : selectedScanIds.length) > 0 && (isDevMode ? selectedGudangIds.length : selectedScanIds.length) < packingData.length && <div className="w-2 h-2 bg-blue-600 rounded-xs"></div>}
+                                                            {((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.length : selectedScanIds.length) > 0 && ((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.length : selectedScanIds.length) === packingData.length && <Check size={12} />}
+                                                            {((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.length : selectedScanIds.length) > 0 && ((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.length : selectedScanIds.length) < packingData.length && <div className="w-2 h-2 bg-blue-600 rounded-xs"></div>}
                                                          </button>
                                                       </th>
                                                    )}
@@ -18490,14 +18512,14 @@ if (filterPackingShift !== 'ALL') {
                                                                </button>
                                                             </div>
                                                          )}
-                                                         {isDevMode && (activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT') && selectedGudangIds.length > 0 && (
+                                                         {(isGudangAdminAllowed || (isDevMode && isGudangMenu)) && selectedGudangIds.length > 0 && (
                                                             <button
                                                                onClick={handleBulkDeleteGudang}
                                                                disabled={isDeletingGudang}
-                                                               className="ml-2 px-2.5 py-1 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors flex items-center gap-1 shadow-2xs"
+                                                               className="ml-2 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-2xs cursor-pointer active:scale-95"
                                                             >
                                                                {isDeletingGudang ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                                                               Delete ({selectedGudangIds.length})
+                                                               Hapus ({selectedGudangIds.length}) Data
                                                             </button>
                                                          )}
                                                           {isDevModeNew && activeView === 'LEADER_PENDING_ADMIN' && selectedScanIds.length > 0 && (
@@ -18564,11 +18586,14 @@ if (filterPackingShift !== 'ALL') {
                                                    {!['PACKING_DATA', 'PACKING_2_DATA', 'SORTIR_DATA', 'OJOL_DATA', 'PICKER_DATA', 'LEADER_2_DATA', 'LEADER_PENDING_ADMIN', 'GUDANG_REPORT'].includes(activeView) && (
                                                       <th className="px-4 py-3.5 text-xs font-extrabold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">Status</th>
                                                    )}
+                                                   {isGudangAdminAllowed && (
+                                                      <th className="px-4 py-3.5 text-xs font-extrabold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center w-20">Aksi</th>
+                                                   )}
                                                 </tr>
                                              </thead>
                                              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                                                 {packingData.length === 0 ? (
-                                                   <tr><td colSpan={7} className="p-10 text-center text-gray-400 dark:text-gray-500 text-sm font-medium">
+                                                   <tr><td colSpan={isGudangAdminAllowed ? 10 : 7} className="p-10 text-center text-gray-400 dark:text-gray-500 text-sm font-medium">
                                                        {dateFilterMode === 'RANGE' && !hasExecutedRangeSearch ? (
                                                           <div className="flex flex-col items-center justify-center gap-2.5 py-6">
                                                              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-xs">
@@ -18585,20 +18610,20 @@ if (filterPackingShift !== 'ALL') {
                                                     </td></tr>
                                                 ) : (
                                                    packingData.map((item, index) => (
-                                                      <tr key={item.id} className={`transition-colors duration-150 ${(isDevMode ? selectedGudangIds.includes(item.id) : selectedScanIds.includes(item.id)) ? 'bg-blue-50/80 dark:bg-blue-900/30' : 'hover:bg-slate-50 dark:hover:bg-gray-750/50'}`}>
-                                                         {(activeView === 'SCAN_ALL' || activeView === 'LEADER_2_DATA' || ((activeView === 'LOGISTIK_DATA' || activeView === 'LEADER_PENDING_ADMIN') && isDevModeNew) || ((activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT') && isDevMode)) && (
+                                                      <tr key={item.id} className={`transition-colors duration-150 ${((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.includes(item.id) : selectedScanIds.includes(item.id)) ? 'bg-blue-50/80 dark:bg-blue-900/30' : 'hover:bg-slate-50 dark:hover:bg-gray-750/50'}`}>
+                                                         {(activeView === 'SCAN_ALL' || activeView === 'LEADER_2_DATA' || ((activeView === 'LOGISTIK_DATA' || activeView === 'LEADER_PENDING_ADMIN') && isDevModeNew) || (isGudangMenu && (isDevMode || isOnlyAdmin))) && (
                                                             <td className="px-4 py-3.5">
                                                                <button
                                                                   onClick={() => {
-                                                                     if (isDevMode && (activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT')) {
+                                                                     if (isGudangMenu && (isOnlyAdmin || isDevMode)) {
                                                                         setSelectedGudangIds(prev => prev.includes(item.id) ? prev.filter(id => id !== item.id) : [...prev, item.id]);
                                                                      } else {
                                                                         setSelectedScanIds(prev => prev.includes(item.id) ? prev.filter(id => id !== item.id) : [...prev, item.id]);
                                                                      }
                                                                   }}
-                                                                  className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${(isDevMode && (activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT') ? selectedGudangIds.includes(item.id) : selectedScanIds.includes(item.id)) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'}`}
+                                                                  className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.includes(item.id) : selectedScanIds.includes(item.id)) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'}`}
                                                                >
-                                                                  {(isDevMode && (activeView === 'GUDANG_PENDING' || activeView === 'GUDANG_READY' || activeView === 'GUDANG_CANCEL' || activeView === 'GUDANG_REPORT') ? selectedGudangIds.includes(item.id) : selectedScanIds.includes(item.id)) && <Check size={12} />}
+                                                                  {((isGudangMenu && (isOnlyAdmin || isDevMode)) ? selectedGudangIds.includes(item.id) : selectedScanIds.includes(item.id)) && <Check size={12} />}
                                                                </button>
                                                             </td>
                                                          )}
@@ -18703,6 +18728,18 @@ if (filterPackingShift !== 'ALL') {
                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800">
                                                                   COMPLETED
                                                                </span>
+                                                            </td>
+                                                         )}
+                                                         {isGudangAdminAllowed && (
+                                                            <td className="px-4 py-3.5 text-center">
+                                                               <button
+                                                                  type="button"
+                                                                  onClick={() => setDeleteGudangModal({ isOpen: true, items: [item] })}
+                                                                  className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200/80 dark:border-red-800/80 transition-colors shadow-2xs inline-flex items-center justify-center cursor-pointer active:scale-95"
+                                                                  title="Hapus Data Ini"
+                                                               >
+                                                                  <Trash2 size={13} />
+                                                               </button>
                                                             </td>
                                                          )}
                                                       </tr>
@@ -27193,6 +27230,164 @@ LXAD-1234567890`}
                <button onClick={() => setSelectedScanIds([])} className="hidden sm:block p-2.5 hover:bg-white/10 rounded-full text-white/60 transition-colors ml-2">
                   <X size={20} />
                </button>
+            </div>
+         )}
+
+         {/* BULK ACTION BAR FOR DATA GUDANG (KHUSUS ROLE ADMIN) */}
+         {isGudangAdminAllowed && selectedGudangIds.length > 0 && (
+            <div className="fixed bottom-0 sm:bottom-8 left-0 sm:left-1/2 sm:-translate-x-1/2 w-full sm:w-auto bg-gray-900/95 dark:bg-black/95 backdrop-blur-xl text-white p-4 sm:rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.4)] border-t sm:border border-white/10 z-[60] flex flex-col sm:flex-row items-center gap-4 sm:gap-4 pb-8 sm:pb-4 transition-all animate-in fade-in slide-in-from-bottom-5 duration-300">
+               <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start pl-2">
+                  <div className="flex items-center gap-4">
+                     <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-red-600 to-rose-400 shadow-red-500/20 flex items-center justify-center font-black text-white shadow-lg ring-4 ring-white/5">
+                        {selectedGudangIds.length}
+                     </div>
+                     <div className="flex flex-col">
+                        <span className="font-black text-sm uppercase tracking-tighter text-white/90">Selected</span>
+                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest leading-none">
+                           Data Gudang
+                        </span>
+                     </div>
+                  </div>
+                  <button onClick={() => setSelectedGudangIds([])} className="sm:hidden p-2 bg-white/10 rounded-full text-white/60">
+                     <X size={18} />
+                  </button>
+               </div>
+
+               <div className="h-10 w-px bg-white/10 hidden sm:block mx-1"></div>
+
+               <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto overflow-x-auto p-1 max-w-[calc(100vw-32px)] sm:max-w-none scrollbar-hide shrink-0 pr-1">
+                  <button
+                     onClick={() => {
+                        const selectedItems = packingData.filter(d => selectedGudangIds.includes(d.id));
+                        setDeleteGudangModal({ isOpen: true, items: selectedItems });
+                     }}
+                     disabled={isDeletingGudang}
+                     className="w-full sm:w-auto h-11 px-8 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-sm rounded-2xl shadow-lg shadow-red-900/50 hover:shadow-red-900/70 transition-all active:scale-[0.98] flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
+                  >
+                     {isDeletingGudang ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />} Hapus Data ({selectedGudangIds.length})
+                  </button>
+               </div>
+               <button onClick={() => setSelectedGudangIds([])} className="hidden sm:block p-2.5 hover:bg-white/10 rounded-full text-white/60 transition-colors ml-2">
+                  <X size={20} />
+               </button>
+            </div>
+         )}
+
+         {/* MODAL KONFIRMASI HAPUS DATA GUDANG (DUAL SUPABASE) */}
+         {deleteGudangModal.isOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+               <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 dark:border-gray-700 relative overflow-hidden animate-in zoom-in-95 duration-200">
+                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-500 via-rose-500 to-red-600"></div>
+
+                  <div className="flex items-start gap-4">
+                     <div className="w-12 h-12 rounded-2xl bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0 border border-red-200/60 dark:border-red-900/50">
+                        <AlertTriangle size={26} />
+                     </div>
+                     <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-black text-gray-900 dark:text-gray-100 tracking-tight">
+                           Konfirmasi Hapus Data Gudang
+                        </h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                           Tindakan ini permanen dan akan menghapus data dari 2 database server.
+                        </p>
+                     </div>
+                     <button
+                        onClick={() => !isDeletingGudang && setDeleteGudangModal({ isOpen: false, items: [] })}
+                        disabled={isDeletingGudang}
+                        className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+                     >
+                        <X size={18} />
+                     </button>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                     <div className="p-3.5 bg-red-50/70 dark:bg-red-950/30 border border-red-200/80 dark:border-red-900/50 rounded-xl">
+                        <div className="flex items-center gap-2 text-xs font-bold text-red-700 dark:text-red-300">
+                           <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                           Peringatan: Penghapusan Dual Supabase
+                        </div>
+                        <p className="text-xs text-red-600/90 dark:text-red-400/90 mt-1 leading-relaxed">
+                           Data akan dihapus secara permanen dari <strong>Supabase VPS</strong> dan <strong>Supabase Cadangan</strong> secara bersamaan. Data yang sudah dihapus tidak dapat dipulihkan.
+                        </p>
+                     </div>
+
+                     <div className="bg-gray-50 dark:bg-gray-900/60 rounded-xl p-3.5 border border-gray-200/70 dark:border-gray-700/70">
+                        <div className="flex items-center justify-between text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                           <span>Jumlah Data: <strong className="text-gray-900 dark:text-gray-100 font-bold">{deleteGudangModal.items.length} Data</strong></span>
+                           <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider">
+                              {activeView === 'GUDANG_PENDING' ? 'Pending LT3' : (activeView === 'GUDANG_READY' ? 'Resi Ready' : (activeView === 'GUDANG_CANCEL' ? 'Scan Cancel' : (activeView === 'GUDANG_REPORT' ? 'Gudang Report' : 'Bundling')))}
+                           </span>
+                        </div>
+
+                        {deleteGudangModal.items.length === 1 ? (
+                           <div className="space-y-1.5 pt-1 text-xs">
+                              <div className="flex items-center justify-between">
+                                 <span className="text-gray-500 dark:text-gray-400">Barcode / Resi:</span>
+                                 <span className="font-mono font-bold text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
+                                    {deleteGudangModal.items[0]?.barcode}
+                                 </span>
+                              </div>
+                              {deleteGudangModal.items[0]?.timestamp && (
+                                 <div className="flex items-center justify-between">
+                                    <span className="text-gray-500 dark:text-gray-400">Waktu Scan:</span>
+                                    <span className="font-mono text-gray-700 dark:text-gray-300">
+                                       {new Date(deleteGudangModal.items[0].timestamp).toLocaleString('id-ID')}
+                                    </span>
+                                 </div>
+                              )}
+                              {deleteGudangModal.items[0]?.employee_name && (
+                                 <div className="flex items-center justify-between">
+                                    <span className="text-gray-500 dark:text-gray-400">Staff:</span>
+                                    <span className="font-semibold text-gray-700 dark:text-gray-300">
+                                       {deleteGudangModal.items[0].employee_name}
+                                    </span>
+                                 </div>
+                              )}
+                           </div>
+                        ) : (
+                           <div className="pt-1">
+                              <span className="text-[11px] text-gray-500 dark:text-gray-400 block mb-1.5 font-medium">Daftar Barcode Terpilih:</span>
+                              <div className="max-h-32 overflow-y-auto pr-1 flex flex-wrap gap-1.5">
+                                 {deleteGudangModal.items.map((it, idx) => (
+                                    <span key={it.id || idx} className="inline-block text-[11px] font-mono font-bold bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded-md border border-gray-200 dark:border-gray-700 shadow-2xs">
+                                       {it.barcode}
+                                    </span>
+                                 ))}
+                              </div>
+                           </div>
+                        )}
+                     </div>
+                  </div>
+
+                  <div className="mt-6 flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                     <button
+                        type="button"
+                        onClick={() => setDeleteGudangModal({ isOpen: false, items: [] })}
+                        disabled={isDeletingGudang}
+                        className="px-4 py-2 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+                     >
+                        Batal
+                     </button>
+                     <button
+                        type="button"
+                        onClick={() => executeDeleteGudang(deleteGudangModal.items.map(it => it.id))}
+                        disabled={isDeletingGudang}
+                        className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-md shadow-red-600/30 transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
+                     >
+                        {isDeletingGudang ? (
+                           <>
+                              <Loader2 size={14} className="animate-spin" />
+                              Menghapus Data...
+                           </>
+                        ) : (
+                           <>
+                              <Trash2 size={14} />
+                              Ya, Hapus {deleteGudangModal.items.length > 1 ? `(${deleteGudangModal.items.length}) Data` : 'Data Ini'}
+                           </>
+                        )}
+                     </button>
+                  </div>
+               </div>
             </div>
          )}
 
