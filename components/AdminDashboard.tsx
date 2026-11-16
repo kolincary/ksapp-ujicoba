@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { UserRole, UserPermissions, UserPins, AdminUser, Employee, AdminDashboardProps, UserManualInputAccess, AdminView, AdminShiftNote, AdminShiftNoteRead } from '../types';
-import { supabase, supabaseNew } from '../services/supabaseClient';
+import { supabase, supabaseNew, supabaseLeader } from '../services/supabaseClient';
 import { gineeSupabase } from '../services/supabaseGineeClient';
 import { syncGineeCancelledOrdersToKalindo, safeIsoDate } from '../services/gineeSupabaseService';
 import { isValidAwbFormat } from '../services/gineeService';
@@ -6492,7 +6492,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                .from('leader_scan_2')
                .update(updates)
                .in('id', selectedScanIds)
-               .catch(() => {});
+               .then(() => {}, () => {});
+            supabaseLeader
+               .from('leader_scan_2')
+               .update(updates)
+               .in('id', selectedScanIds)
+               .then(() => {}, () => {});
          }
 
          setSuccessToast(`Berhasil mengubah ${selectedScanIds.length} data.`);
@@ -6528,7 +6533,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                .from('leader_scan_2')
                .delete()
                .in('id', selectedScanIds)
-               .catch(() => {});
+               .then(() => {}, () => {});
+            supabaseLeader
+               .from('leader_scan_2')
+               .delete()
+               .in('id', selectedScanIds)
+               .then(() => {}, () => {});
          }
          setSuccessToast(`Berhasil menghapus ${selectedScanIds.length} data.`);
          setSelectedScanIds([]);

@@ -34,13 +34,17 @@ const DEFAULT_KEY = VPS_KEY;
 export const DEFAULT_NEW_URL = 'https://eekxcrkgsnaatgivccso.supabase.co';
 export const DEFAULT_NEW_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVla3hjcmtnc25hYXRnaXZjY3NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NTA4ODEsImV4cCI6MjEwNjMyNjg4MX0.SlP6pVN6YXROHqfyzxETin6w7UNAoNehazvCxrjjSyw';
 
-// Dedicated Immutable Client for Leader Scan
-export const supabaseLeader: SupabaseClient = createClient(DEFAULT_NEW_URL, DEFAULT_NEW_KEY, {
+// Dedicated Leader Scan Supabase (ymolrxscthxxtlmnxmob)
+export const LEADER_SUPABASE_URL = 'https://ymolrxscthxxtlmnxmob.supabase.co';
+export const LEADER_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inltb2xyeHNjdGh4eHRsbW54bW9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzNjgzNzgsImV4cCI6MjA3OTk0NDM3OH0.Hv64EHm_eZE3QHKN8QkdDFnYAQT1f_7KTDcaRoFobi8';
+
+// Dedicated Immutable Client for Leader Scan (ymolrxscthxxtlmnxmob)
+export const supabaseLeader: SupabaseClient = createClient(LEADER_SUPABASE_URL, LEADER_SUPABASE_KEY, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false,
-    storageKey: `sb-lead-${extractProjectRef(DEFAULT_NEW_URL)}`,
+    storageKey: `sb-lead-${extractProjectRef(LEADER_SUPABASE_URL)}`,
     storage: isolatedStorage
   }
 });
