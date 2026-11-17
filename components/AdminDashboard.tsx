@@ -2041,6 +2041,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.log(`[SYS] Deep Hunt Barcode (Firestore): ${upper}`);
 
       try {
+         const { collection, query, where, getDocs } = await import('firebase/firestore');
+         const { db } = await import('../services/firebaseClient');
+
          let allData: any[] = [];
 
          const variations = Array.from(new Set([term, upper, term.toLowerCase()]));
@@ -6768,13 +6771,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             if (pendingToFix && pendingToFix.length > 0) {
                const idsToUpdate = pendingToFix.map(p => p.id);
+               // Hapus data pending yang sudah berhasil di-scan ke READY agar tidak terjadi duplikasi atau HTTP 409 conflict
                await supabase
                   .from('scanned_items')
-                  .update({
-                     status: 'COMPLETED',
-                     menu_context: 'READY'
-                  })
+                  .delete()
                   .in('id', idsToUpdate);
+               try {
+                  await supabaseNew
+                     .from('scanned_items')
+                     .delete()
+                     .in('id', idsToUpdate);
+               } catch (e) {}
             }
          }
       } catch (err) {
@@ -6895,7 +6902,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             ];
 
             // 1. Fetch Supabase Data
-            if (effectiveSource !== 'FIRESTORE') {
             try {
                const query = buildPackingQuery(shiftToNamesMap, 'exact', { leaderBarcodes });
                const from = (targetPage - 1) * rowsPerPage;
@@ -6908,176 +6914,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             } catch (sbErr) {
                console.warn("Supabase query warning:", sbErr);
             }
-         }
-
-         // 2. Decide whether to use Firestore
-         // Firestore is used if:
-         // a) User forced Firestore source ('FIRESTORE')
-         // b) activeView is in supportedFallbackViews AND (Supabase count is 0 or low < 500 or cache exists)
-         const isSupportedView = supportedFallbackViews.includes(activeView);
-         const shouldCheckFirestore = isSupportedView && (effectiveSource === 'FIRESTORE');
-
-         if (shouldCheckFirestore) {
-            try {
-               let targetRole = 'PACKING';
-               if (activeView === 'PACKING_DATA' || activeView === 'PACKING_2_DATA') targetRole = 'PACKING';
-               else if (activeView === 'SORTIR_DATA') targetRole = 'SORTIR';
-               else if (activeView === 'PICKER_DATA') targetRole = 'PICKER';
-               else if (activeView === 'CHECKER_DATA') targetRole = 'CHECKER';
-               else if (activeView === 'LOGISTIK_DATA') targetRole = 'LOGISTIK';
-               else if (activeView === 'OJOL_DATA') targetRole = 'OJOL';
-               else if (activeView.startsWith('GUDANG')) targetRole = 'GUDANG';
-
-               let dayDocs: any[] = [];
-               if (firestoreDayDataCache.has(targetDateStr)) {
-                  dayDocs = firestoreDayDataCache.get(targetDateStr)!;
-               } else {
-                  setFirestoreLoadingText('Mengambil data dari Firestore...');
-                  const activeFsQuery = fsQuery(
-                     collection(db, 'scanned_items'),
-                     where('timestamp', '>=', startMs),
-                     where('timestamp', '<=', endMs)
-                  );
-                  const fsSnap = await getDocs(activeFsQuery);
-                  dayDocs = fsSnap.docs.map(docSnap => ({
-                     id: docSnap.id,
-                     ...(docSnap.data() as Record<string, any>)
-                  }));
-                  firestoreDayDataCache.set(targetDateStr, dayDocs);
-                  setFirestoreLoadingText('');
-               }
-
-               let fsRoleItems: any[] = [];
-               dayDocs.forEach(d => {
-                  const r = (d.role || '').toUpperCase();
-                  let isMatch = false;
-                  if (targetRole === 'PACKING') {
-                     isMatch = (r === 'PACKING' || r === 'PACKING_DATA' || r === 'PACKING_2' || r === 'PACKING_2_DATA' || r.includes('PACK'));
-                  } else if (targetRole === 'SORTIR') {
-                     isMatch = (r === 'SORTIR' || r === 'SORTIR_DATA');
-                  } else if (targetRole === 'PICKER') {
-                     isMatch = (r === 'PICKER' || r === 'PICKER_DATA' || r === 'PICKER_2' || r.includes('PICK'));
-                  } else if (targetRole === 'CHECKER') {
-                     isMatch = (r === 'CHECKER' || r === 'CHECKER_DATA' || r.includes('CHECK'));
-                  } else if (targetRole === 'LOGISTIK') {
-                     isMatch = (r === 'LOGISTIK' || r === 'LOGISTIK_DATA' || r.includes('LOGISTIK'));
-                  } else if (targetRole === 'OJOL') {
-                     isMatch = (r === 'OJOL' || r === 'OJOL_DATA' || r.includes('OJOL'));
-                  } else if (targetRole === 'GUDANG') {
-                     isMatch = (r === 'GUDANG' || r.includes('GUDANG'));
-                  }
-
-                  if (isMatch) {
-                     let rawBarcode = (d.barcode || '').toString().trim();
-                     if (rawBarcode && targetRole !== 'LOGISTIK' && rawBarcode.startsWith('0026')) {
-                        rawBarcode = rawBarcode.slice(2);
-                     }
-                     if (/^LXAD[^-]/i.test(rawBarcode)) rawBarcode = 'LXAD-' + rawBarcode.substring(4);
-                     if (/^JNAP[^-]/i.test(rawBarcode)) rawBarcode = 'JNAP-' + rawBarcode.substring(4);
-                     if (/^JNEB[^-]/i.test(rawBarcode)) rawBarcode = 'JNEB-' + rawBarcode.substring(4);
-
-                     const empName = d.employee_name || d.admin_name || d.leader_name || '-';
-                     fsRoleItems.push({
-                        ...d,
-                        barcode: rawBarcode,
-                        employee_name: empName,
-                        shift: shiftMap.get(empName) || 'Unknown',
-                        is_from_firestore: true
-                     });
-                  }
-               });
-
-               // Gunakan data Firestore jika Supabase 0 data ATAU data Firestore lebih lengkap
-               if (effectiveSource === 'FIRESTORE' || fsRoleItems.length > 0) {
-                  let filteredFs = fsRoleItems;
-                  if (filterPackingStaff && filterPackingStaff !== 'ALL') {
-                     filteredFs = filteredFs.filter(item => item.employee_name === filterPackingStaff || item.admin_name === filterPackingStaff);
-                  }
-                  if (filterPackingShift && filterPackingShift !== 'ALL') {
-                     const validNames = new Set(shiftToNamesMap[filterPackingShift] || []);
-                     filteredFs = filteredFs.filter(item => validNames.has(item.employee_name));
-                  }
-                  if (packingSearch) {
-                     const term = packingSearch.toLowerCase();
-                     filteredFs = filteredFs.filter(item =>
-                        (item.barcode && item.barcode.toLowerCase().includes(term)) ||
-                        (item.employee_name && item.employee_name.toLowerCase().includes(term)) ||
-                        (item.admin_name && item.admin_name.toLowerCase().includes(term))
-                     );
-                  }
-
-                  filteredFs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-                  const totalFsCount = filteredFs.length;
-                  const from = (targetPage - 1) * rowsPerPage;
-                  const to = from + rowsPerPage - 1;
-                  const pageItems = filteredFs.slice(from, to + 1);
-
-                  setPackingData(pageItems);
-                  setTotalRows(totalFsCount);
-                  setActiveDataSource('FIRESTORE');
-                  setIsLoadingPacking(false);
-                  return;
-               }
-            } catch (fsErr) {
-               console.error("Error fetching fallback data from Firestore:", fsErr);
-            }
-         }
-
-         // FALLBACK / SINKRONISASI FIRESTORE KHUSUS MENU LEADER_PENDING_ADMIN
-         if (activeView === 'LEADER_PENDING_ADMIN') {
-            try {
-               const activeFsQuery = fsQuery(
-                  collection(db, 'leader_pending_scans'),
-                  where('timestamp', '>=', startMs),
-                  where('timestamp', '<=', endMs)
-               );
-
-               const fsSnap = await getDocs(activeFsQuery);
-               let fsItems: any[] = [];
-               fsSnap.docs.forEach(docSnap => {
-                  const d = docSnap.data() as Record<string, any>;
-                  fsItems.push({
-                     id: docSnap.id,
-                     ...d,
-                     barcode: (d.barcode || '').toString().trim(),
-                     employee_name: d.leader_name || d.leader_profile || 'LEADER',
-                     shift: shiftMap.get(d.leader_name) || 'Unknown',
-                     role: 'LEADER_PENDING',
-                     is_from_firestore: true
-                  });
-               });
-
-               if ((sbCount === 0 || effectiveSource === 'FIRESTORE') && fsItems.length > 0) {
-                  if (filterPackingStaff && filterPackingStaff !== 'ALL') {
-                     fsItems = fsItems.filter(item => item.leader_name === filterPackingStaff || item.leader_profile === filterPackingStaff || item.employee_name === filterPackingStaff);
-                  }
-                  if (packingSearch) {
-                     const term = packingSearch.toLowerCase();
-                     fsItems = fsItems.filter(item =>
-                        (item.barcode && item.barcode.toLowerCase().includes(term)) ||
-                        (item.leader_name && item.leader_name.toLowerCase().includes(term)) ||
-                        (item.leader_profile && item.leader_profile.toLowerCase().includes(term))
-                     );
-                  }
-
-                  fsItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-                  const totalFsCount = fsItems.length;
-                  const from = (targetPage - 1) * rowsPerPage;
-                  const to = from + rowsPerPage - 1;
-                  const pageItems = fsItems.slice(from, to + 1);
-
-                  setPackingData(pageItems);
-                  setTotalRows(totalFsCount);
-                  setActiveDataSource('FIRESTORE');
-                  setIsLoadingPacking(false);
-                  return;
-               }
-            } catch (fsErr) {
-               console.error("Error fetching fallback leader pending data from Firestore:", fsErr);
-            }
-         }
          }
 
          // Default to Supabase data
@@ -11215,54 +11051,6 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
          if (countError) throw countError;
          let totalRecords = count || 0;
          
-         if (totalRecords === 0 && (targetView === 'PACKING_DATA' || targetView === 'PACKING_2_DATA')) {
-            try {
-               const startMs = new Date(`${exportStartDate}T00:00:00`).getTime();
-               const endMs = new Date(`${exportEndDate}T23:59:59.999`).getTime();
-
-               const qFs = fsQuery(
-                  collection(db, 'scanned_items'),
-                  where('role', '==', 'PACKING'),
-                  where('timestamp', '>=', startMs),
-                  where('timestamp', '<=', endMs)
-               );
-
-               const fsSnap = await getDocs(qFs);
-               let fsItems: any[] = [];
-               fsSnap.forEach(docSnap => {
-                  const d = docSnap.data() as Record<string, any>;
-                  fsItems.push({
-                     id: docSnap.id,
-                     ...d,
-                     employee_name: d.employee_name || d.admin_name || '-',
-                     shift: shiftMap.get(d.employee_name || d.admin_name) || '-'
-                  });
-               });
-
-               fsItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-               if (fsItems.length > 0) {
-                  const headers = "No,Timestamp,ID Pesanan,Barcode,File Excel,Employee,Shift,Role,Status,Destination,Description";
-                  const batchRows = fsItems.map((item: any, idx: number) => {
-                     const tsFormatted = item.timestamp ? new Date(item.timestamp).toLocaleString('id-ID').replace(/,/g, '') : '-';
-                     const status = item.description?.includes('[CANCEL]') ? 'CANCEL' : 'SUCCESS';
-                     return `${idx + 1},"${tsFormatted}","=""${item.order_id || ''}""","=""${item.barcode || ''}""","${item.excel_filename || ''}","${item.employee_name || ''}","${item.shift || '-'}","${item.role || 'PACKING'}","${status}","${item.destination || ''}","${(item.description || '').replace(/"/g, '""')}"`;
-                  });
-
-                  const csvContent = "\uFEFF" + headers + "\n" + batchRows.join("\n");
-                  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                  const link = document.createElement('a');
-                  link.href = URL.createObjectURL(blob);
-                  link.download = `Packing_Data_Firestore_${exportStartDate}_to_${exportEndDate}.csv`;
-                  link.click();
-                  setIsExportingRange(false);
-                  return;
-               }
-            } catch (fsExportErr) {
-               console.error("Firestore range export fallback error:", fsExportErr);
-            }
-         }
-
          if (totalRecords === 0) { alert(`No data found for ${label} in selected range.`); setIsExportingRange(false); return; }
 
          const FETCH_BATCH_SIZE = 1000;
@@ -11514,143 +11302,6 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
          const targetDateStr = canManageDate ? filterDate : getTodayString();
          const isRangeExport = canUse7DaysRangeFilter && dateFilterMode === 'RANGE';
          const cacheKey = isRangeExport ? `range_${rangeStartDate}_to_${rangeEndDate}` : targetDateStr;
-
-         // Direct Export from Firestore if activeDataSource === 'FIRESTORE' and NOT Range Export
-         if (!isRangeExport && activeDataSource === 'FIRESTORE' && firestoreDayDataCache.has(targetDateStr)) {
-            let allDayDocs: any[] = [];
-            if (isRangeExport) {
-               let startD = new Date(rangeStartDate);
-               let endD = new Date(rangeEndDate);
-               if (isNaN(startD.getTime())) startD = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
-               if (isNaN(endD.getTime())) endD = new Date();
-               if (startD > endD) startD = endD;
-
-               const dateList: string[] = [];
-               let curr = new Date(startD);
-               while (curr <= endD) {
-                  dateList.push(curr.toISOString().split('T')[0]);
-                  curr.setDate(curr.getDate() + 1);
-               }
-
-                const uncachedDates = dateList.filter(dStr => !firestoreDayDataCache.has(dStr));
-                if (uncachedDates.length > 0) {
-                   for (let i = 0; i < uncachedDates.length; i++) {
-                      const dStr = uncachedDates[i];
-                      const pct = Math.round(((i + 1) / uncachedDates.length) * 50);
-                      setExportPackingProgress(pct);
-                      await new Promise(r => setTimeout(r, 10));
-
-                      const dStartMs = new Date(`${dStr}T00:00:00`).getTime();
-                      const dEndMs = new Date(`${dStr}T23:59:59.999`).getTime();
-                      const dQuery = fsQuery(
-                         collection(db, 'scanned_items'),
-                         where('timestamp', '>=', dStartMs),
-                         where('timestamp', '<=', dEndMs)
-                      );
-                      const dSnap = await getDocs(dQuery);
-                      const singleDayDocs = dSnap.docs.map(docSnap => {
-                         const data = docSnap.data();
-                         return {
-                            id: docSnap.id,
-                            barcode: data.barcode,
-                            employee_name: data.employee_name || data.admin_name || data.leader_name || '-',
-                            timestamp: data.timestamp,
-                            role: data.role,
-                            status: data.status,
-                            description: data.description,
-                            menu_context: data.menu_context,
-                            order_id: data.order_id
-                         };
-                      });
-                      firestoreDayDataCache.set(dStr, singleDayDocs);
-                   }
-                   setExportPackingProgress(55);
-                }
-
-                for (const dStr of dateList) {
-                   const dayDocs = firestoreDayDataCache.get(dStr) || [];
-                   allDayDocs = allDayDocs.concat(dayDocs);
-                }
-            } else if (firestoreDayDataCache.has(targetDateStr)) {
-               allDayDocs = firestoreDayDataCache.get(targetDateStr) || [];
-            }
-            let targetRole = 'PACKING';
-            if (activeView === 'PACKING_2_DATA') targetRole = 'PACKING_2';
-            else if (activeView === 'SORTIR_DATA') targetRole = 'SORTIR';
-            else if (activeView === 'PICKER_DATA') targetRole = 'PICKER';
-            else if (activeView === 'CHECKER_DATA') targetRole = 'CHECKER';
-            else if (activeView === 'LOGISTIK_DATA') targetRole = 'LOGISTIK';
-            else if (activeView === 'OJOL_DATA') targetRole = 'OJOL';
-            else if (activeView.startsWith('GUDANG')) targetRole = 'GUDANG';
-
-            let fsRoleItems: any[] = [];
-            allDayDocs.forEach(d => {
-               const r = (d.role || '').toUpperCase();
-               let isMatch = false;
-               if (targetRole === 'PACKING_2') isMatch = (r === 'PACKING_2' || r === 'PACKING_2_DATA');
-               else if (targetRole === 'PACKING') isMatch = (r === 'PACKING' || r === 'PACKING_DATA' || (r.includes('PACK') && r !== 'PACKING_2'));
-               else if (targetRole === 'SORTIR') isMatch = (r === 'SORTIR' || r === 'SORTIR_DATA');
-               else if (targetRole === 'PICKER') isMatch = (r === 'PICKER' || r === 'PICKER_DATA');
-               else if (targetRole === 'CHECKER') isMatch = (r === 'CHECKER' || r === 'CHECKER_DATA');
-               else if (targetRole === 'LOGISTIK') isMatch = (r === 'LOGISTIK' || r === 'LOGISTIK_DATA');
-               else if (targetRole === 'OJOL') isMatch = (r === 'OJOL' || r === 'OJOL_DATA');
-               else if (targetRole === 'GUDANG') isMatch = (r === 'GUDANG' || r.includes('GUDANG'));
-
-               if (isMatch) {
-                  let rawBarcode = (d.barcode || '').toString().trim();
-                  if (rawBarcode && targetRole !== 'LOGISTIK' && rawBarcode.startsWith('0026')) rawBarcode = rawBarcode.slice(2);
-                  if (/^LXAD[^-]/i.test(rawBarcode)) rawBarcode = 'LXAD-' + rawBarcode.substring(4);
-                  if (/^JNAP[^-]/i.test(rawBarcode)) rawBarcode = 'JNAP-' + rawBarcode.substring(4);
-                  if (/^JNEB[^-]/i.test(rawBarcode)) rawBarcode = 'JNEB-' + rawBarcode.substring(4);
-
-                  const empName = d.employee_name || d.admin_name || d.leader_name || '-';
-                  fsRoleItems.push({
-                     ...d,
-                     barcode: rawBarcode,
-                     employee_name: empName,
-                     shift: shiftMap.get(empName) || 'Unknown'
-                  });
-               }
-            });
-
-            if (filterPackingStaff && filterPackingStaff !== 'ALL') {
-               fsRoleItems = fsRoleItems.filter(item => item.employee_name === filterPackingStaff || item.admin_name === filterPackingStaff);
-            }
-            if (filterPackingShift && filterPackingShift !== 'ALL') {
-               const validNames = new Set(shiftToNamesMap[filterPackingShift] || []);
-               fsRoleItems = fsRoleItems.filter(item => validNames.has(item.employee_name));
-            }
-            if (packingSearch) {
-               const term = packingSearch.toLowerCase();
-               fsRoleItems = fsRoleItems.filter(item =>
-                  (item.barcode && item.barcode.toLowerCase().includes(term)) ||
-                  (item.employee_name && item.employee_name.toLowerCase().includes(term)) ||
-                  (item.admin_name && item.admin_name.toLowerCase().includes(term))
-               );
-            }
-
-            fsRoleItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-            const headers = "No,Timestamp,ID Pesanan,Barcode,File Excel,Employee,Shift,Role,Status,Destination,Description";
-            const rows = fsRoleItems.map((item: any, idx: number) => {
-               const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleString('id-ID') : '-';
-               return `${idx + 1},"${dateStr}","=""${item.order_id || ''}""","=""${item.barcode}""","${item.excel_filename || ''}","${item.employee_name}","${item.shift}","${item.role || targetRole}","${item.status || ''}","${item.destination || ''}","${item.description || ''}"`;
-            }).join('\n');
-
-            const blob = new Blob([headers + "\n" + rows], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            const dateLabel = isRangeExport ? `${rangeStartDate}_sd_${rangeEndDate}` : filterDate;
-            link.setAttribute('download', `${label}_${dateLabel}_FIRESTORE.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            setSuccessToast(`Export ${label} (Firestore) Berhasil! Total ${fsRoleItems.length} baris.`);
-            setIsExportingPacking(false);
-            return;
-         }
 
          const exportStartDateStr = isRangeExport ? (appliedRangeStartDate || rangeStartDate) : targetDateStr;
          const exportEndDateStr = isRangeExport ? (appliedRangeEndDate || rangeEndDate) : targetDateStr;
@@ -12468,90 +12119,6 @@ if (filterPackingShift !== 'ALL') {
          setOjolStaffList(sortedOjolStaff);
          if (filterOjolShift !== 'ALL' && sortedOjolStaff.length > 0 && !sortedOjolStaff.includes(filterOjolShift)) {
             setFilterOjolStaff('ALL');
-         }
-
-         // FIRESTORE BRANCH FOR OJOL
-         if (forcedDataSource === 'FIRESTORE') {
-            const startMs = new Date(`${effectiveDate}T00:00:00`).getTime();
-            const endMs = new Date(`${effectiveDate}T23:59:59.999`).getTime();
-
-            let dayDocs: any[] = [];
-            if (firestoreDayDataCache.has(effectiveDate)) {
-               dayDocs = firestoreDayDataCache.get(effectiveDate)!;
-            } else {
-               setFirestoreLoadingText('Mengambil data Ojol dari Firestore...');
-               const activeFsQuery = fsQuery(
-                  collection(db, 'scanned_items'),
-                  where('timestamp', '>=', startMs),
-                  where('timestamp', '<=', endMs)
-               );
-               const fsSnap = await getDocs(activeFsQuery);
-               dayDocs = fsSnap.docs.map(docSnap => ({
-                  id: docSnap.id,
-                  ...(docSnap.data() as Record<string, any>)
-               }));
-               firestoreDayDataCache.set(effectiveDate, dayDocs);
-               setFirestoreLoadingText('');
-            }
-
-            let fsOjolItems: any[] = [];
-            dayDocs.forEach(d => {
-               const r = (d.role || '').toUpperCase();
-               if (r === 'OJOL' || r === 'OJOL_DATA') {
-                  let rawBarcode = (d.barcode || '').toString().trim();
-                  if (rawBarcode.startsWith('0026') || rawBarcode.startsWith('002')) rawBarcode = rawBarcode.replace(/^00/, '');
-                  if (/^LXAD[^-]/i.test(rawBarcode)) rawBarcode = 'LXAD-' + rawBarcode.substring(4);
-                  if (/^JNAP[^-]/i.test(rawBarcode)) rawBarcode = 'JNAP-' + rawBarcode.substring(4);
-                  if (/^JNEB[^-]/i.test(rawBarcode)) rawBarcode = 'JNEB-' + rawBarcode.substring(4);
-
-                  const empName = d.employee_name || d.admin_name || d.leader_name || '-';
-                  fsOjolItems.push({
-                     ...d,
-                     barcode: rawBarcode,
-                     employee_name: empName,
-                     shift: shiftMap.get(empName) || 'Unknown',
-                     is_from_firestore: true
-                  });
-               }
-            });
-
-            if (filterOjolStaff && filterOjolStaff !== 'ALL') {
-               fsOjolItems = fsOjolItems.filter(item => item.employee_name === filterOjolStaff);
-            }
-            if (filterOjolShift && filterOjolShift !== 'ALL') {
-               const validNames = new Set(shiftToNamesMap[filterOjolShift] || []);
-               fsOjolItems = fsOjolItems.filter(item => validNames.has(item.employee_name));
-            }
-            if (ojolSearch) {
-               const term = ojolSearch.toLowerCase();
-               fsOjolItems = fsOjolItems.filter(item =>
-                  (item.barcode && item.barcode.toLowerCase().includes(term)) ||
-                  (item.employee_name && item.employee_name.toLowerCase().includes(term))
-               );
-            }
-
-            fsOjolItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-            const totalFsCount = fsOjolItems.length;
-            const from = (page - 1) * rowsPerPage;
-            const to = from + rowsPerPage - 1;
-            const pageItems = fsOjolItems.slice(from, to + 1);
-
-            setOjolData(pageItems);
-            setTotalRows(totalFsCount);
-            setActiveDataSource('FIRESTORE');
-
-            const uniqueBarcodes = new Set(fsOjolItems.map((i: any) => i.barcode)).size;
-            const uniqueStaff = new Set(fsOjolItems.map((i: any) => i.employee_name)).size;
-            const latest = fsOjolItems.length > 0 ? new Date(fsOjolItems[0].timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
-            setOjolStats({
-               total: totalFsCount,
-               distinctBarcodes: uniqueBarcodes,
-               activeStaff: uniqueStaff,
-               latest
-            });
-            setIsLoadingOjol(false);
-            return;
          }
 
          // SUPABASE BRANCH FOR OJOL
