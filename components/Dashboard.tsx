@@ -2726,39 +2726,69 @@ export const Dashboard: React.FC<DashboardProps> = ({
             const targetClient = (currentView === 'BUNDLING' || currentView === 'BUNDLING_HISTORY') ? supabaseBundling : supabase;
             const targetTable = (currentView === 'BUNDLING' || currentView === 'BUNDLING_HISTORY') ? 'outbound_scans' : (currentView === 'SPECIAL_SCAN' ? 'admin_special_scans' : 'scanned_items');
 
+            // Determine Target Menu Context for GUDANG or other roles
+            let targetMenuContext = 'DEFAULT';
+            if (role === UserRole.GUDANG) {
+               if (currentView === 'PENDING' || currentView === 'PENDING_HISTORY') {
+                  targetMenuContext = 'PENDING';
+               } else if (currentView === 'READY' || currentView === 'READY_HISTORY') {
+                  targetMenuContext = 'READY';
+               } else if (currentView === 'REPORT' || currentView === 'REPORT_HISTORY') {
+                  targetMenuContext = 'REPORT';
+               } else if (currentView === 'CANCEL' || currentView === 'CANCEL_HISTORY') {
+                  targetMenuContext = 'CANCEL';
+               } else if (currentView === 'BUNDLING' || currentView === 'BUNDLING_HISTORY') {
+                  targetMenuContext = 'BUNDLING';
+               } else {
+                  targetMenuContext = 'SCAN';
+               }
+
+               // 1. Cek duplikat lokal di memory (items) untuk role GUDANG
+               const localGudangDup = items.find(i => 
+                  i.barcode?.trim().toUpperCase() === result.barcode.trim().toUpperCase() &&
+                  i.role === UserRole.GUDANG &&
+                  (i.menu_context === targetMenuContext || (!i.menu_context && targetMenuContext === 'DEFAULT'))
+               );
+
+               if (localGudangDup) {
+                  playError();
+                  const rawTs = localGudangDup.timestamp || Date.now();
+                  const d = new Date(Number(rawTs));
+                  const dateStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                  const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                  const staffName = localGudangDup.employee_name || employeeName || 'Staff';
+                  const contextLabel = currentView === 'CANCEL' ? 'Scan Cancel' : (currentView === 'PENDING' ? 'Pending Scans' : (currentView === 'READY' ? 'Resi Ready' : (currentView === 'REPORT' ? 'Gudang Report' : 'Gudang')));
+
+                  const toastMsg = `Duplicate: ${result.barcode}\nSudah discan tgl ${dateStr} (${timeStr}) oleh ${staffName}`;
+                  await recordFail('DUPLICATE', `Duplicate: Sudah discan tgl ${dateStr} (${timeStr}) oleh ${staffName}`);
+
+                  if (isContinuousScan) {
+                     updateContinuousStatus('error', `Discan: ${dateStr}`);
+                     triggerCameraToast(toastMsg, 'error');
+                  } else {
+                     setErrorToast(`Duplicate Scan: ${result.barcode}\nResi ini sudah pernah discan pada tanggal ${dateStr} pukul ${timeStr} oleh ${staffName} di menu ${contextLabel}.`);
+                     setTimeout(() => setErrorToast(null), 5000);
+                  }
+                  return;
+               }
+            }
+
             let query = targetClient
                .from(targetTable)
-               .select('employee_name')
+               .select('id, employee_name, timestamp, created_at, menu_context')
                .eq('barcode', result.barcode)
-               .eq('role', role)
-               .limit(1);
+               .eq('role', role);
 
             // SPECIAL LOGIC FOR PICKER/PICKER_2: Only check if scanned by the SAME user (team is allowed)
             if ([UserRole.PICKER, UserRole.PICKER_2].includes(role)) {
                query = query.eq('user_email', userEmail);
-            }
-
-            // SPECIAL LOGIC FOR GUDANG: Allow duplicates across different sub-menus
-            // Now using DB Column 'menu_context' instead of description match
-            if (role === UserRole.GUDANG) {
-               if (currentView === 'PENDING') {
-                  query = query.eq('menu_context', 'PENDING');
-               } else if (currentView === 'READY') {
-                  query = query.eq('menu_context', 'READY');
-               } else if (currentView === 'REPORT') {
-                  query = query.eq('menu_context', 'REPORT');
-               } else {
-                  // For default SCAN view (Potong Stok) - though it's disabled now
-                  query = query.eq('menu_context', 'SCAN');
-               }
-            } else if (![UserRole.PICKER, UserRole.PICKER_2].includes(role)) {
-               // For other roles (except Picker which doesn't enforce menu_context strictly or uses DEFAULT)
-               // But since the unique index is (barcode, role, date, menu_context),
-               // we should ideally query with the same expected context.
-               // Existing items might be null, so we might need 'is', 'null' or just ignore if we trust DB constraint.
-               // Best to check 'DEFAULT' as that's what we insert.
+            } else if (role === UserRole.GUDANG) {
+               query = query.eq('menu_context', targetMenuContext);
+            } else {
                query = query.eq('menu_context', 'DEFAULT');
             }
+
+            query = query.order('timestamp', { ascending: false }).limit(1);
 
             const { data, error } = await query.maybeSingle();
 
@@ -2766,6 +2796,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             if (data) {
                playError();
+
+               // SPECIAL INFORMATIVE ALERT FOR GUDANG (Shows Exact Scan Date, Time, and Staff)
+               if (role === UserRole.GUDANG) {
+                  const rawTs = data.timestamp || (data.created_at ? new Date(data.created_at).getTime() : null);
+                  let dateStr = '';
+                  let timeStr = '';
+                  if (rawTs) {
+                     const d = new Date(Number(rawTs));
+                     dateStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                     timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                  }
+                  const staffName = data.employee_name || 'Staff';
+                  const dateDetail = dateStr ? `tgl ${dateStr}${timeStr ? ' (' + timeStr + ')' : ''}` : 'sebelumnya';
+                  const contextLabel = currentView === 'CANCEL' ? 'Scan Cancel' : (currentView === 'PENDING' ? 'Pending Scans' : (currentView === 'READY' ? 'Resi Ready' : (currentView === 'REPORT' ? 'Gudang Report' : 'Gudang')));
+
+                  const toastMsg = `Duplicate: ${result.barcode}\nSudah discan ${dateDetail} oleh ${staffName}`;
+                  await recordFail('DUPLICATE', `Duplicate: Sudah discan ${dateDetail} oleh ${staffName}`);
+
+                  if (isContinuousScan) {
+                     updateContinuousStatus('error', dateStr ? `Discan: ${dateStr}` : 'Duplicate');
+                     triggerCameraToast(toastMsg, 'error');
+                  } else {
+                     setErrorToast(`Duplicate Scan: ${result.barcode}\nResi ini sudah pernah discan pada ${dateDetail} oleh ${staffName} di menu ${contextLabel}.`);
+                     setTimeout(() => setErrorToast(null), 5000);
+                  }
+                  return;
+               }
+
                const isOwnScan = [UserRole.PICKER, UserRole.PICKER_2].includes(role);
                const msg = isOwnScan ? `Duplicate: Anda sudah scan resi ini` : `Duplicate: Processed by ${data.employee_name}`;
                await recordFail('DUPLICATE', msg); // Await the save
@@ -3579,6 +3637,61 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                console.warn("Duplicate detected by DB Constraint");
                playError();
+
+               // SPECIAL INFORMATIVE ALERT FOR GUDANG (Fetch Scan Date, Time, and Staff from DB)
+               if (role === UserRole.GUDANG) {
+                  let dateDetail = '';
+                  let dateOnlyStr = '';
+                  let staffName = '';
+                  try {
+                     const { data: existingDup } = await targetClient
+                        .from(targetTable)
+                        .select('timestamp, created_at, employee_name')
+                        .eq('barcode', item.barcode)
+                        .eq('role', role)
+                        .eq('menu_context', item.menu_context || 'DEFAULT')
+                        .order('timestamp', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+
+                     if (existingDup) {
+                        const rawTs = existingDup.timestamp || (existingDup.created_at ? new Date(existingDup.created_at).getTime() : null);
+                        if (rawTs) {
+                           const d = new Date(Number(rawTs));
+                           dateOnlyStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                           const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                           dateDetail = `tgl ${dateOnlyStr} (${timeStr})`;
+                        }
+                        if (existingDup.employee_name) {
+                           staffName = existingDup.employee_name;
+                        }
+                     }
+                  } catch (fetchErr) {
+                     console.warn("Lookup duplicate on 23505 failed:", fetchErr);
+                  }
+
+                  const byInfo = staffName ? ` oleh ${staffName}` : '';
+                  const contextLabel = currentView === 'CANCEL' ? 'Scan Cancel' : (currentView === 'PENDING' ? 'Pending Scans' : (currentView === 'READY' ? 'Resi Ready' : (currentView === 'REPORT' ? 'Gudang Report' : 'Gudang')));
+                  const failMsg = dateDetail ? `Duplicate: Sudah discan ${dateDetail}${byInfo}` : 'Double Scan (Tertangkap Database)';
+                  await recordFail('DUPLICATE', failMsg);
+
+                  const toastMsg = dateDetail 
+                     ? `Duplicate: ${item.barcode}\nSudah discan ${dateDetail}${byInfo}`
+                     : `Duplicate: ${item.barcode}\nData sudah ada di database.`;
+
+                  if (isContinuousScan) {
+                     updateContinuousStatus('error', dateOnlyStr ? `Discan: ${dateOnlyStr}` : 'Double Scan');
+                     triggerCameraToast(toastMsg, 'error');
+                  } else {
+                     setErrorToast(dateDetail 
+                        ? `Duplicate Scan: ${item.barcode}\nResi ini sudah pernah discan pada ${dateDetail}${byInfo} di menu ${contextLabel}.`
+                        : `Duplicate Scan: ${item.barcode}\nData sudah ada di database.`
+                     );
+                     setTimeout(() => setErrorToast(null), 5000);
+                  }
+                  return;
+               }
+
                recordFail('DUPLICATE', 'Double Scan (Tertangkap Database)');
 
                if (isContinuousScan) {
