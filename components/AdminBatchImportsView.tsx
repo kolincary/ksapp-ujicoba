@@ -310,6 +310,9 @@ export function AdminBatchImportsView({ currentAdmin }: AdminBatchImportsViewPro
       if (error) throw error;
       setItems((data || []).map(mapSupabaseToItem));
     } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('signal is aborted')) {
+        return; // Request dibatalkan karena filter berubah / unmount
+      }
       console.error('Error fetching admin_batch_imports from Supabase VPS:', err);
       setErrorMsg(err.message || 'Gagal memuat data dari Supabase VPS');
     } finally {

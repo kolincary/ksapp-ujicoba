@@ -3559,6 +3559,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const [isLoadingAuditData, setIsLoadingAuditData] = useState(false);
    const [isBackgroundRefreshingAudit, setIsBackgroundRefreshingAudit] = useState(false);
    const auditRequestIdRef = useRef<number>(0);
+   const adminImportsRequestIdRef = useRef<number>(0);
+   const cancelOrdersRequestIdRef = useRef<number>(0);
    const earlierLookbackCacheRef = useRef<Map<string, { timestamp: number; map: Map<string, string> }>>(new Map());
    const [adminImports, setAdminImports] = useState<AdminBatchImport[]>([]);
    const [isLoadingAdminImports, setIsLoadingAdminImports] = useState(false);
@@ -7402,6 +7404,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    };
 
    const fetchAdminImports = async (): Promise<string[]> => {
+      const curReqId = ++adminImportsRequestIdRef.current;
       if (!batchDateFilter) {
          setAdminImports([]);
          setEarlierAdminResiMap(new Map());
@@ -7425,7 +7428,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          const now = Date.now();
 
          if (cachedLookback && (now - cachedLookback.timestamp < 10 * 60 * 1000)) {
-            setEarlierAdminResiMap(cachedLookback.map);
+            if (curReqId === adminImportsRequestIdRef.current) {
+               setEarlierAdminResiMap(cachedLookback.map);
+            }
          } else {
             (async () => {
                try {
@@ -7433,13 +7438,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const eMap = new Map<string, string>();
 
                   // Query past 7 days directly from Supabase VPS admin_batch_imports
-                  const { data: pastImports } = await supabase
+                  const { data: pastImports, error: pErr } = await supabase
                      .from('admin_batch_imports')
                      .select('timestamp, barcodes')
                      .gte('timestamp', lookbackStart.toISOString())
                      .lt('timestamp', startOfDay.toISOString())
                      .order('timestamp', { ascending: false })
                      .limit(500);
+
+                  if (pErr) throw pErr;
+                  if (curReqId !== adminImportsRequestIdRef.current) return;
 
                   (pastImports || []).forEach((row: any) => {
                      const tsStr = row.timestamp;
@@ -7456,9 +7464,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   });
 
                   earlierLookbackCacheRef.current.set(lookbackCacheKey, { timestamp: Date.now(), map: eMap });
-                  setEarlierAdminResiMap(eMap);
-               } catch (pastErr) {
-                  console.error("Failed to fetch earlier admin imports:", pastErr);
+                  if (curReqId === adminImportsRequestIdRef.current) {
+                     setEarlierAdminResiMap(eMap);
+                  }
+               } catch (pastErr: any) {
+                  if (pastErr?.name === 'AbortError' || pastErr?.message?.includes('aborted') || pastErr?.message?.includes('signal is aborted')) {
+                     return;
+                  }
+                  console.warn("Failed to fetch earlier admin imports:", pastErr);
                }
             })();
          }
@@ -7473,6 +7486,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                .lte('timestamp', endOfDay.toISOString())
                .order('timestamp', { ascending: false });
 
+            if (curReqId !== adminImportsRequestIdRef.current) return [];
             if (vpsErr) throw vpsErr;
 
             if (vpsImports && vpsImports.length > 0) {
@@ -7487,19 +7501,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   barcodes: Array.isArray(row.barcodes) ? row.barcodes : []
                }));
             }
-         } catch (sbErr) {
+         } catch (sbErr: any) {
+            if (sbErr?.name === 'AbortError' || sbErr?.message?.includes('aborted') || sbErr?.message?.includes('signal is aborted')) {
+               // Normal: request dibatalkan karena perpindahan filter tanggal/jam yang cepat
+               return [];
+            }
             console.error('Error fetching admin_batch_imports from Supabase VPS:', sbErr);
          }
+
+         if (curReqId !== adminImportsRequestIdRef.current) return [];
 
          // Fallback to batches & batch_items if admin_batch_imports has 0 rows for this date
          if (fetched.length === 0) {
             try {
-               const { data: vpsBatches } = await supabase
+               const { data: vpsBatches, error: bErr } = await supabase
                   .from('batches')
                   .select('id, batch_no, excel_filename, created_at, created_by')
                   .gte('created_at', startOfDay.toISOString())
                   .lte('created_at', endOfDay.toISOString())
                   .order('created_at', { ascending: false });
+
+               if (bErr) throw bErr;
+               if (curReqId !== adminImportsRequestIdRef.current) return [];
 
                if (vpsBatches && vpsBatches.length > 0) {
                   const batchIds = vpsBatches.map(b => b.id);
@@ -7512,6 +7535,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         .select('batch_id, barcode')
                         .in('batch_id', batchIds)
                         .range(from, from + step - 1);
+                     if (curReqId !== adminImportsRequestIdRef.current) return [];
                      if (cErr || !chunk || chunk.length === 0) break;
                      allItems.push(...chunk);
                      if (chunk.length < step) break;
@@ -7547,10 +7571,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                      };
                   });
                }
-            } catch (supaErr) {
+            } catch (supaErr: any) {
+               if (supaErr?.name === 'AbortError' || supaErr?.message?.includes('aborted') || supaErr?.message?.includes('signal is aborted')) {
+                  return [];
+               }
                console.error("Failed to fallback fetch admin imports from Supabase:", supaErr);
             }
          }
+
+         if (curReqId !== adminImportsRequestIdRef.current) return [];
 
          fetched.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
          setAdminImports(fetched);
@@ -7569,10 +7598,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          const barcodes = fetched.flatMap(item => item.barcodes || []).map(b => (b || '').toString().trim().toUpperCase()).filter(Boolean);
          return Array.from(new Set(barcodes));
       } catch (err: any) {
+         if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('signal is aborted')) {
+            return [];
+         }
          console.error("Failed to fetch admin batch imports", err);
          return [];
       } finally {
-         setIsLoadingAdminImports(false);
+         if (curReqId === adminImportsRequestIdRef.current) {
+            setIsLoadingAdminImports(false);
+         }
       }
    };
 
@@ -10323,12 +10357,15 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
 
    // --- CANCEL DATA FUNCTIONS ---
    const fetchCancelledOrders = async (shouldSyncGinee = false) => {
+      const curCancelReqId = ++cancelOrdersRequestIdRef.current;
       setIsLoadingCancelData(true);
       try {
          const targetDate = (activeView === 'BATCH_DATA' || activeView === 'BATCH_DATA_2' || activeView === 'BATCH_DATA_3') ? batchDateFilter : cancelDateFilter;
          if (!targetDate) {
             setCancelledOrders([]);
-            setIsLoadingCancelData(false);
+            if (curCancelReqId === cancelOrdersRequestIdRef.current) {
+               setIsLoadingCancelData(false);
+            }
             return;
          }
          const startOfDay = new Date(targetDate + 'T00:00:00').toISOString();
@@ -10346,14 +10383,20 @@ Data yang dihapus tidak dapat dipulihkan.`)) {
          }
 
          const { data, error } = await queryBuilder.order('cancelled_at', { ascending: false });
+         if (curCancelReqId !== cancelOrdersRequestIdRef.current) return;
          if (error) {
             if (error.code !== '42P01') throw error; // Ignore missing table error
          }
          setCancelledOrders(data || []);
       } catch (err: any) {
+         if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('signal is aborted')) {
+            return; // Request dibatalkan karena perpindahan filter tanggal
+         }
          console.error("Error fetching cancelled orders:", err);
       } finally {
-         setIsLoadingCancelData(false);
+         if (curCancelReqId === cancelOrdersRequestIdRef.current) {
+            setIsLoadingCancelData(false);
+         }
       }
 
       // Auto-Sync dari Ginee ke Kalindo di latar belakang (ASYNCHRONOUS NON-BLOCKING)

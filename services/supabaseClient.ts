@@ -126,12 +126,16 @@ const createCustomFetch = (validAnonKey: string, projectRef: string) => {
     let timeoutId: any = null;
     let customInit = init;
 
-    // Proteksi timeout 12 detik agar fetch tidak pernah menggantung UI browser
+    // Proteksi timeout 30 detik agar fetch tidak pernah menggantung UI browser saat network fluktuasi
     if (!init?.signal && typeof AbortController !== 'undefined') {
       controller = new AbortController();
       timeoutId = setTimeout(() => {
-        try { controller?.abort(); } catch (e) {}
-      }, 12000);
+        try { 
+          controller?.abort(new DOMException('Request timeout (30s) exceeded', 'TimeoutError')); 
+        } catch (e) {
+          try { controller?.abort(); } catch (_) {}
+        }
+      }, 30000);
       customInit = { ...init, signal: controller.signal };
     }
 
