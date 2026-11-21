@@ -7434,17 +7434,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          } else {
             (async () => {
                try {
-                  const lookbackStart = new Date(startOfDay.getTime() - 7 * 24 * 60 * 60 * 1000);
+                  const lookbackStart = new Date(startOfDay.getTime() - 4 * 24 * 60 * 60 * 1000);
                   const eMap = new Map<string, string>();
 
-                  // Query past 7 days directly from Supabase VPS admin_batch_imports
+                  // Query past 4 days directly from Supabase VPS admin_batch_imports (cukup 100 batch terbaru agar ringan & cepat)
                   const { data: pastImports, error: pErr } = await supabase
                      .from('admin_batch_imports')
                      .select('timestamp, barcodes')
                      .gte('timestamp', lookbackStart.toISOString())
                      .lt('timestamp', startOfDay.toISOString())
                      .order('timestamp', { ascending: false })
-                     .limit(500);
+                     .limit(100);
 
                   if (pErr) throw pErr;
                   if (curReqId !== adminImportsRequestIdRef.current) return;
@@ -7851,25 +7851,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                let crossDateGudangRows: any[] = [];
                if (unscannedAdminBc.length > 0) {
-                  // Gunakan chunk besar 1000 resi & dieksekusi secara paralel cepat
-                  const chunkSize = 1000;
+                  // Gunakan chunk aman 250 resi per request agar tidak melebihi batas HTTP/2 header (mencegah ERR_HTTP2_PROTOCOL_ERROR)
+                  const chunkSize = 250;
                   const chunks: string[][] = [];
                   for (let i = 0; i < unscannedAdminBc.length; i += chunkSize) {
                      chunks.push(unscannedAdminBc.slice(i, i + chunkSize));
                   }
 
-                  const batchResults = await Promise.all(
-                     chunks.map(chunk =>
-                        supabase.from('scanned_items')
-                           .select('id, barcode, timestamp, status, menu_context, role, description')
-                           .in('barcode', chunk)
-                           .or('status.eq.PENDING,menu_context.eq.PENDING,status.eq.READY,menu_context.eq.READY,status.eq.CANCEL,menu_context.eq.CANCEL,role.eq.GUDANG,role.eq.LEADER_PENDING')
-                           .limit(5000)
-                     )
-                  );
-                  batchResults.forEach(res => {
-                     if (res.data) crossDateGudangRows.push(...res.data);
-                  });
+                  // Eksekusi secara batch terkontrol (maksimal 4 request simultan) agar tunnel tetap stabil
+                  for (let i = 0; i < chunks.length; i += 4) {
+                     const currentBatch = chunks.slice(i, i + 4);
+                     const batchResults = await Promise.all(
+                        currentBatch.map(chunk =>
+                           supabase.from('scanned_items')
+                              .select('id, barcode, timestamp, status, menu_context, role, description')
+                              .in('barcode', chunk)
+                              .or('status.eq.PENDING,menu_context.eq.PENDING,status.eq.READY,menu_context.eq.READY,status.eq.CANCEL,menu_context.eq.CANCEL,role.eq.GUDANG,role.eq.LEADER_PENDING')
+                              .limit(5000)
+                        )
+                     );
+                     batchResults.forEach(res => {
+                        if (res.data) crossDateGudangRows.push(...res.data);
+                     });
+                  }
                }
 
                // Merge and de-duplicate gudang rows
@@ -7917,27 +7921,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             // C. Fetch Cross-Date Scans (Past & Future) for remaining admin barcodes in parallel chunks of 1000
             let crossDateData: any[] = [];
             if (remainingBarcodes.length > 0) {
-               const chunkSize = 1000;
+               // Gunakan chunk aman 250 resi per request agar tidak melebihi batas HTTP/2 header (mencegah ERR_HTTP2_PROTOCOL_ERROR)
+               const chunkSize = 250;
                const chunks: string[][] = [];
                for (let i = 0; i < remainingBarcodes.length; i += chunkSize) {
                   chunks.push(remainingBarcodes.slice(i, i + chunkSize));
                }
 
-               const batchResults = await Promise.all(
-                  chunks.map(chunk => {
-                     let q = supabase.from('scanned_items')
-                        .select('id, barcode, timestamp, status, menu_context, role')
-                        .in('barcode', chunk)
-                        .limit(5000);
+               // Eksekusi secara batch terkontrol (maksimal 4 request simultan) agar tunnel tetap stabil
+               for (let i = 0; i < chunks.length; i += 4) {
+                  const currentBatch = chunks.slice(i, i + 4);
+                  const batchResults = await Promise.all(
+                     currentBatch.map(chunk => {
+                        let q = supabase.from('scanned_items')
+                           .select('id, barcode, timestamp, status, menu_context, role')
+                           .in('barcode', chunk)
+                           .limit(5000);
 
-                     if (roleList.length > 1) q = q.in('role', roleList);
-                     else q = q.eq('role', role);
-                     return q;
-                  })
-               );
-               batchResults.forEach(res => {
-                  if (res.data) crossDateData.push(...res.data);
-               });
+                        if (roleList.length > 1) q = q.in('role', roleList);
+                        else q = q.eq('role', role);
+                        return q;
+                     })
+                  );
+                  batchResults.forEach(res => {
+                     if (res.data) crossDateData.push(...res.data);
+                  });
+               }
             }
 
             return [...sameDayData, ...crossDateData];

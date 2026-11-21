@@ -1765,19 +1765,30 @@ export async function callGineeProxy(
   const targetProxyUrl = config.customProxyUrl || DEFAULT_GINEE_EDGE_PROXY;
 
   try {
-    const res = await fetch(targetProxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        path,
-        method,
-        body,
-        appKey,
-        appSecret,
-        country,
-        host,
-      }),
-    });
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => {
+      try { controller.abort(); } catch (_) {}
+    }, 20000) : null;
+
+    let res: Response;
+    try {
+      res = await fetch(targetProxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path,
+          method,
+          body,
+          appKey,
+          appSecret,
+          country,
+          host,
+        }),
+        signal: controller?.signal,
+      });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
 
     if (res.ok) {
       const data = await res.json();
