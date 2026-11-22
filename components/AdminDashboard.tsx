@@ -7652,10 +7652,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
          });
 
+         const SPECIAL_KEYWORDS = ['OJOL', 'BUNDLING', 'WLCL', 'CRBD', 'TRBD', 'SLC', 'RSB', 'BLIBLI'];
+         const GENERAL_SPECIAL_PICKERS = ['SHELDA', 'RACHEL', 'REVAN'];
+         const RSB_SPECIAL_PICKERS = ['SHELDA', 'RACHEL', 'REVAN', 'MUKMIN', 'WAHID SURYONO', 'ZAKI TRISNAUFAL', 'ASEP'];
+
          fetched = fetched.map(item => {
             const leader = leaderMap.get(normalizeBatchKey(item.excelFilename)) || (item.batchId ? leaderMap.get(normalizeBatchKey(item.batchId)) : null);
-            const isLeaderScanned = !!leader;
-            const leaderName = leader?.leader_name || null;
+            let isLeaderScanned = !!leader;
+            let leaderName = leader?.leader_name || null;
             let leaderAssignees: string[] = [];
             if (Array.isArray(leader?.assignees)) {
                leaderAssignees = leader.assignees.filter(Boolean);
@@ -7675,6 +7679,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }
                });
             }
+            const pickerNames = Array.from(pickerEmpSet);
+
+            // Special Batch Rule: Jika nama batch mengandung OJOL, BUNDLING, WLCL, CRBD, TRBD, SLC, RSB, BLIBLI
+            // dan di-scan oleh staff khusus di role picker, maka otomatis mengisi kolom scan leader
+            const upperBatchName = (item.excelFilename || item.batchId || '').toUpperCase();
+            const isSpecialBatch = SPECIAL_KEYWORDS.some(kw => upperBatchName.includes(kw));
+            if (!isLeaderScanned && isSpecialBatch) {
+               const isRSB = upperBatchName.includes('RSB');
+               const allowedSpecialStaff = isRSB ? RSB_SPECIAL_PICKERS : GENERAL_SPECIAL_PICKERS;
+
+               const qualifyingStaff = pickerNames.filter(name => {
+                  const upperName = (name || '').trim().toUpperCase();
+                  return allowedSpecialStaff.some(staff => upperName === staff || upperName.includes(staff) || staff.includes(upperName));
+               });
+
+               if (qualifyingStaff.length > 0) {
+                  isLeaderScanned = true;
+                  leaderName = qualifyingStaff.join(', ');
+               }
+            }
+
             const totalResi = item.jumlah ?? (item.barcodes ? item.barcodes.length : 0);
             const isPickerComplete = totalResi > 0 && pickerScannedCount >= totalResi;
             const isSuccess = isLeaderScanned && isPickerComplete;
@@ -7685,7 +7710,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                leaderName,
                leaderAssignees,
                pickerScannedCount,
-               pickerNames: Array.from(pickerEmpSet),
+               pickerNames,
                isPickerComplete,
                isSuccess
             };
