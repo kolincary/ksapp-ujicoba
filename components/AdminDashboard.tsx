@@ -132,6 +132,7 @@ import {
    Cpu,
    Radio,
    ShoppingCart,
+   ArrowUpDown,
 } from 'lucide-react';
 import {
    getDeviceId,
@@ -3266,6 +3267,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       batchId: string;
       createdAt: string;
       barcodes?: string[];
+      isLeaderScanned?: boolean;
+      leaderName?: string | null;
+      leaderAssignees?: string[];
+      pickerScannedCount?: number;
+      pickerNames?: string[];
+      isPickerComplete?: boolean;
+      isSuccess?: boolean;
    }
    const [activeBatchTab, setActiveBatchTab] = useState<'ITEMS' | 'SUMMARY' | 'REKAP_ADMIN' | 'AUDIT_KOMPARASI' | 'MASS_SEARCH'>(() => {
       if (currentAdmin?.username === 'Tamu') return 'AUDIT_KOMPARASI';
@@ -3568,6 +3576,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const [expandedRekapId, setExpandedRekapId] = useState<string | null>(null);
    const [selectedRekapIds, setSelectedRekapIds] = useState<string[]>([]);
    const [selectedAdminResi, setSelectedAdminResi] = useState<string[]>([]);
+   const [rekapStatusFilter, setRekapStatusFilter] = useState<'ALL' | 'INCOMPLETE' | 'SUCCESS'>('ALL');
+   const [rekapTimeSortOrder, setRekapTimeSortOrder] = useState<'ASC' | 'DESC'>('ASC');
    const [batchSummaryData, setBatchSummaryData] = useState<any[]>([]);
    const [isLoadingBatchSummary, setIsLoadingBatchSummary] = useState(false);
    const [batchProgressMap, setBatchProgressMap] = useState<Record<string, { total: number, scanned: number, staff?: string, loading: boolean }>>({});
@@ -7476,21 +7486,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             })();
          }
 
-         // Fetch today's snapshot directly from Supabase VPS admin_batch_imports
+         // Fetch today's snapshot directly from Supabase VPS admin_batch_imports,
+         // concurrently with leader scans & picker scans for status tracking
          let fetched: AdminBatchImport[] = [];
+         let leadersData: any[] = [];
+         let pickersData: any[] = [];
+
+         const fullDayStartMs = new Date(batchDateFilter + 'T00:00:00').getTime();
+         const fullDayEndMs = new Date(batchDateFilter + 'T23:59:59.999').getTime();
+
+         const fetchPickersForDay = async () => {
+            let all: any[] = [];
+            let offset = 0;
+            const step = 5000;
+            while (true) {
+               const { data, error } = await supabase
+                  .from('scanned_items')
+                  .select('barcode, employee_name')
+                  .in('role', ['PICKER', 'PICKER_2'])
+                  .gte('timestamp', fullDayStartMs)
+                  .lte('timestamp', fullDayEndMs)
+                  .range(offset, offset + step - 1);
+               if (curReqId !== adminImportsRequestIdRef.current) return [];
+               if (error || !data || data.length === 0) break;
+               all.push(...data);
+               if (data.length < step) break;
+               offset += step;
+            }
+            return all;
+         };
+
          try {
-            const { data: vpsImports, error: vpsErr } = await supabase
-               .from('admin_batch_imports')
-               .select('*')
-               .gte('timestamp', startOfDay.toISOString())
-               .lte('timestamp', endOfDay.toISOString())
-               .order('timestamp', { ascending: false });
+            const [vpsRes, leadersRes, pickersList] = await Promise.all([
+               supabase
+                  .from('admin_batch_imports')
+                  .select('*')
+                  .gte('timestamp', startOfDay.toISOString())
+                  .lte('timestamp', endOfDay.toISOString())
+                  .order('timestamp', { ascending: false }),
+               supabase
+                  .from('leader_scan_2')
+                  .select('barcode, leader_name, assignees, timestamp')
+                  .gte('timestamp', fullDayStartMs)
+                  .lte('timestamp', fullDayEndMs),
+               fetchPickersForDay()
+            ]);
 
             if (curReqId !== adminImportsRequestIdRef.current) return [];
-            if (vpsErr) throw vpsErr;
+            if (vpsRes.error) throw vpsRes.error;
 
-            if (vpsImports && vpsImports.length > 0) {
-               fetched = vpsImports.map((row: any) => ({
+            leadersData = leadersRes.data || [];
+            pickersData = pickersList || [];
+
+            if (vpsRes.data && vpsRes.data.length > 0) {
+               fetched = vpsRes.data.map((row: any) => ({
                   id: row.id,
                   excelFilename: row.excel_filename || row.batch_id,
                   staffName: row.staff_name || 'LAINNYA',
@@ -7580,6 +7629,67 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          }
 
          if (curReqId !== adminImportsRequestIdRef.current) return [];
+
+         // Decorate fetched batches with Leader & Picker scan statuses
+         const normalizeBatchKey = (name: string) => 
+            (name || '').toLowerCase()
+               .replace(/\.(xlsx|xls|pdf|csv)\s*$/i, '')
+               .replace(/[\s\-_]/g, '')
+               .trim();
+
+         const leaderMap = new Map<string, any>();
+         leadersData.forEach((row: any) => {
+            if (row.barcode) {
+               leaderMap.set(normalizeBatchKey(row.barcode), row);
+            }
+         });
+
+         const pickerBarcodeMap = new Map<string, string>();
+         pickersData.forEach((row: any) => {
+            const cleanB = (row.barcode || '').toString().trim().toUpperCase();
+            if (cleanB && !pickerBarcodeMap.has(cleanB)) {
+               pickerBarcodeMap.set(cleanB, row.employee_name || 'PICKER');
+            }
+         });
+
+         fetched = fetched.map(item => {
+            const leader = leaderMap.get(normalizeBatchKey(item.excelFilename)) || (item.batchId ? leaderMap.get(normalizeBatchKey(item.batchId)) : null);
+            const isLeaderScanned = !!leader;
+            const leaderName = leader?.leader_name || null;
+            let leaderAssignees: string[] = [];
+            if (Array.isArray(leader?.assignees)) {
+               leaderAssignees = leader.assignees.filter(Boolean);
+            } else if (typeof leader?.assignees === 'string' && leader.assignees.trim()) {
+               leaderAssignees = [leader.assignees.trim()];
+            }
+
+            let pickerScannedCount = 0;
+            const pickerEmpSet = new Set<string>();
+            if (Array.isArray(item.barcodes) && item.barcodes.length > 0) {
+               item.barcodes.forEach(bc => {
+                  const cleanBc = (bc || '').toString().trim().toUpperCase();
+                  if (cleanBc && pickerBarcodeMap.has(cleanBc)) {
+                     pickerScannedCount++;
+                     const emp = pickerBarcodeMap.get(cleanBc);
+                     if (emp) pickerEmpSet.add(emp);
+                  }
+               });
+            }
+            const totalResi = item.jumlah ?? (item.barcodes ? item.barcodes.length : 0);
+            const isPickerComplete = totalResi > 0 && pickerScannedCount >= totalResi;
+            const isSuccess = isLeaderScanned && isPickerComplete;
+
+            return {
+               ...item,
+               isLeaderScanned,
+               leaderName,
+               leaderAssignees,
+               pickerScannedCount,
+               pickerNames: Array.from(pickerEmpSet),
+               isPickerComplete,
+               isSuccess
+            };
+         });
 
          fetched.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
          setAdminImports(fetched);
@@ -20205,6 +20315,9 @@ if (filterPackingShift !== 'ALL') {
                                           onClick={async () => {
                                              fetchBatchData();
                                              setRefreshSummaryTrigger(prev => prev + 1);
+                                             if (activeBatchTab === 'REKAP_ADMIN') {
+                                                fetchAdminImports();
+                                             }
                                              if (activeBatchTab === 'SUMMARY') {
                                                 const visibleBatches = batchSummaryData.filter(batch => { if (showFsSyncDevMode || showSecretMenu) return true;
                                                    const progress = batchProgressMap[batch.id];
@@ -21211,7 +21324,7 @@ LXAD-1234567890`}
                                  
                                   {(() => {
                                      const showAdminRekapActions = true;
-                                     const currentStaffData = adminImports.filter(item => {
+                                     const filteredStaffData = adminImports.filter(item => {
                                         if (activeStaffTab !== 'SEMUA' && item.staffName !== activeStaffTab) return false;
                                         if (batchSearchMode === 'MASS' && batchMassSearchApplied.length > 0) {
                                            return item.barcodes?.some(b => batchMassSearchApplied.includes((b || '').toString().trim().toUpperCase()));
@@ -21222,17 +21335,97 @@ LXAD-1234567890`}
                                         }
                                         return true;
                                      });
+
+                                     const totalStaffCount = filteredStaffData.length;
+                                     const incompleteStaffCount = filteredStaffData.filter(item => !item.isSuccess).length;
+                                     const successStaffCount = filteredStaffData.filter(item => item.isSuccess).length;
+
+                                     const statusFilteredData = filteredStaffData.filter(item => {
+                                        if (rekapStatusFilter === 'INCOMPLETE') return !item.isSuccess;
+                                        if (rekapStatusFilter === 'SUCCESS') return !!item.isSuccess;
+                                        return true;
+                                     });
+
+                                     const currentStaffData = [...statusFilteredData].sort((a, b) => {
+                                        // Tier 1: Incomplete (!isSuccess) always on top of complete (isSuccess)
+                                        const aSuccess = !!a.isSuccess;
+                                        const bSuccess = !!b.isSuccess;
+                                        if (!aSuccess && bSuccess) return -1;
+                                        if (aSuccess && !bSuccess) return 1;
+
+                                        // Tier 2: Within each group, sort by timestamp
+                                        const timeA = new Date(a.timestamp).getTime();
+                                        const timeB = new Date(b.timestamp).getTime();
+                                        return rekapTimeSortOrder === 'ASC' ? timeA - timeB : timeB - timeA;
+                                     });
+
                                      const isAllSelected = currentStaffData.length > 0 && currentStaffData.every(item => selectedRekapIds.includes(item.id));
 
                                      return (
                                         <>
-                                  <div className="mb-3 flex justify-between items-center bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                                     <div className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300">
-                                        Total Resi <span className="text-indigo-600 dark:text-indigo-400">{activeStaffTab}</span>: 
-                                        <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded text-lg">
-                                           {currentStaffData.reduce((sum, item) => sum + (item.jumlah || 0), 0).toLocaleString()}
-                                        </span>
+                                  <div className="mb-3 flex flex-wrap gap-2 justify-between items-center bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                                     <div className="flex flex-wrap items-center gap-3">
+                                        <div className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300">
+                                           Total Resi <span className="text-indigo-600 dark:text-indigo-400">{activeStaffTab}</span>: 
+                                           <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded text-lg font-black">
+                                              {filteredStaffData.reduce((sum, item) => sum + (item.jumlah || 0), 0).toLocaleString()}
+                                           </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold">
+                                           <button
+                                              type="button"
+                                              onClick={() => setRekapStatusFilter('ALL')}
+                                              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                 rekapStatusFilter === 'ALL'
+                                                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm font-black'
+                                                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                              }`}
+                                           >
+                                              <span>Semua</span>
+                                              <span className="px-1.5 py-0.2 rounded-full bg-gray-200 dark:bg-gray-600 text-[10px]">
+                                                 {totalStaffCount}
+                                              </span>
+                                           </button>
+                                           <button
+                                              type="button"
+                                              onClick={() => setRekapStatusFilter('INCOMPLETE')}
+                                              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                 rekapStatusFilter === 'INCOMPLETE'
+                                                    ? 'bg-rose-500 text-white shadow-sm font-black'
+                                                    : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
+                                              }`}
+                                              title="Tampilkan hanya batch yang belum di-scan Leader atau Picker"
+                                           >
+                                              <span className="w-2 h-2 rounded-full bg-rose-400 dark:bg-rose-300 animate-pulse"></span>
+                                              <span>Perlu Follow-up</span>
+                                              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                                                 rekapStatusFilter === 'INCOMPLETE' ? 'bg-rose-700 text-white' : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-extrabold'
+                                              }`}>
+                                                 {incompleteStaffCount}
+                                              </span>
+                                           </button>
+                                           <button
+                                              type="button"
+                                              onClick={() => setRekapStatusFilter('SUCCESS')}
+                                              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                 rekapStatusFilter === 'SUCCESS'
+                                                    ? 'bg-emerald-600 text-white shadow-sm font-black'
+                                                    : 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                                              }`}
+                                              title="Tampilkan hanya batch yang sudah lengkap di-scan Leader & Picker"
+                                           >
+                                              <CheckCircle2 size={13} />
+                                              <span>Sudah Sukses</span>
+                                              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                                                 rekapStatusFilter === 'SUCCESS' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-extrabold'
+                                              }`}>
+                                                 {successStaffCount}
+                                              </span>
+                                           </button>
+                                        </div>
                                      </div>
+
                                      <div className="flex items-center gap-2">
                                         {showAdminRekapActions && selectedRekapIds.length > 0 && (
                                            <button 
@@ -21272,7 +21465,7 @@ LXAD-1234567890`}
                                            <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 text-gray-500 sticky top-0 z-10 shadow-sm">
                                               <tr>
                                                  {showAdminRekapActions && (
-                                                    <th className="p-4 font-bold uppercase tracking-wider text-[10px] w-10 text-center">
+                                                    <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] w-10 text-center">
                                                        <input 
                                                           type="checkbox" 
                                                           checked={isAllSelected}
@@ -21287,18 +21480,38 @@ LXAD-1234567890`}
                                                        />
                                                     </th>
                                                  )}
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">TANGGAL</th>
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">NAMA BATCH</th>
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">JUMLAH</th>
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">BATCH MANAJEMEN</th>
+                                                 <th 
+                                                    onClick={() => setRekapTimeSortOrder(prev => prev === 'ASC' ? 'DESC' : 'ASC')}
+                                                    className="p-3.5 font-bold uppercase tracking-wider text-[10px] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none"
+                                                    title={`Urutkan Timestamp: ${rekapTimeSortOrder === 'ASC' ? 'A-Z (Terlama ke Terbaru)' : 'Z-A (Terbaru ke Terlama)'}`}
+                                                 >
+                                                    <div className="flex items-center gap-1">
+                                                       <span>TANGGAL</span>
+                                                       {rekapTimeSortOrder === 'ASC' ? (
+                                                          <ChevronUp size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                                       ) : (
+                                                          <ChevronDown size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                                       )}
+                                                    </div>
+                                                 </th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">NAMA BATCH</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">JUMLAH</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN LEADER</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN PICKER</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">STATUS</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">BATCH MANAJEMEN</th>
                                               </tr>
                                            </thead>
                                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                               {currentStaffData.map(item => (
                                                  <React.Fragment key={item.id}>
-                                                    <tr className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${selectedRekapIds.includes(item.id) ? 'bg-indigo-50/30 dark:bg-indigo-900/10' : ''}`}>
+                                                    <tr className={`transition-colors ${
+                                                       !item.isSuccess
+                                                          ? 'bg-rose-50/60 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/60 dark:hover:bg-rose-900/30'
+                                                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                                                    } ${selectedRekapIds.includes(item.id) ? '!bg-indigo-50/50 dark:!bg-indigo-900/20' : ''}`}>
                                                        {showAdminRekapActions && (
-                                                          <td className="p-4 text-center">
+                                                          <td className="p-3.5 text-center">
                                                              <input 
                                                                 type="checkbox" 
                                                                 checked={selectedRekapIds.includes(item.id)}
@@ -21313,10 +21526,15 @@ LXAD-1234567890`}
                                                              />
                                                           </td>
                                                        )}
-                                                       <td className="p-4 text-xs font-medium text-gray-900 dark:text-gray-100">{new Date(item.timestamp).toLocaleString()}</td>
-                                                       <td className="p-4 text-xs font-bold text-gray-600 dark:text-gray-300">
+                                                       <td className="p-3.5 text-xs font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                                                          {new Date(item.timestamp).toLocaleString('id-ID', {
+                                                             day: '2-digit', month: '2-digit', year: 'numeric',
+                                                             hour: '2-digit', minute: '2-digit', second: '2-digit'
+                                                          })}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs font-bold text-gray-700 dark:text-gray-200">
                                                           <div className="flex items-center gap-1.5">
-                                                             <span>{item.excelFilename}</span>
+                                                             <span className="font-semibold">{item.excelFilename}</span>
                                                              {showAdminRekapActions && (
                                                                 <button
                                                                    type="button"
@@ -21336,12 +21554,77 @@ LXAD-1234567890`}
                                                              )}
                                                           </div>
                                                        </td>
-                                                       <td className="p-4 text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                                                       <td className="p-3.5 text-xs font-extrabold text-indigo-600 dark:text-indigo-400 text-center">
                                                           {item.jumlah}
                                                        </td>
-                                                       <td className="p-4 text-xs">
+                                                       <td className="p-3.5 text-xs">
+                                                          {item.isLeaderScanned ? (
+                                                             <div className="flex flex-col gap-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 w-fit">
+                                                                   <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400" />
+                                                                   <span>{item.leaderName || 'LEADER'}</span>
+                                                                </span>
+                                                                {item.leaderAssignees && item.leaderAssignees.length > 0 && (
+                                                                   <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-1">
+                                                                      Assign: <strong className="text-gray-700 dark:text-gray-200">{item.leaderAssignees.join(', ')}</strong>
+                                                                   </span>
+                                                                )}
+                                                             </div>
+                                                          ) : (
+                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 w-fit">
+                                                                <XCircle size={12} className="text-rose-500" />
+                                                                <span>Belum Leader</span>
+                                                             </span>
+                                                          )}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs">
+                                                          {item.isPickerComplete ? (
+                                                             <div className="flex flex-col gap-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 w-fit">
+                                                                   <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400" />
+                                                                   <span>{item.pickerScannedCount}/{item.jumlah} Selesai</span>
+                                                                </span>
+                                                                {item.pickerNames && item.pickerNames.length > 0 && (
+                                                                   <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-1 truncate max-w-[150px]" title={item.pickerNames.join(', ')}>
+                                                                      Picker: <strong className="text-gray-700 dark:text-gray-200">{item.pickerNames.join(', ')}</strong>
+                                                                   </span>
+                                                                )}
+                                                             </div>
+                                                          ) : item.pickerScannedCount && item.pickerScannedCount > 0 ? (
+                                                             <div className="flex flex-col gap-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 w-fit">
+                                                                   <Clock size={12} className="text-amber-500" />
+                                                                   <span>{item.pickerScannedCount}/{item.jumlah} Proses</span>
+                                                                </span>
+                                                                {item.pickerNames && item.pickerNames.length > 0 && (
+                                                                   <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-1 truncate max-w-[150px]" title={item.pickerNames.join(', ')}>
+                                                                      Picker: <strong className="text-gray-700 dark:text-gray-200">{item.pickerNames.join(', ')}</strong>
+                                                                   </span>
+                                                                )}
+                                                             </div>
+                                                          ) : (
+                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 w-fit">
+                                                                <XCircle size={12} className="text-rose-500" />
+                                                                <span>0/{item.jumlah} Belum Scan</span>
+                                                             </span>
+                                                          )}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs text-center">
+                                                          {item.isSuccess ? (
+                                                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-black text-[11px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-sm whitespace-nowrap">
+                                                                <CheckCircle2 size={13} />
+                                                                <span>SUKSES</span>
+                                                             </span>
+                                                          ) : (
+                                                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-black text-[11px] bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 shadow-sm animate-pulse whitespace-nowrap">
+                                                                <AlertCircle size={13} />
+                                                                <span>FOLLOW-UP</span>
+                                                             </span>
+                                                          )}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs">
                                                           <div className="flex items-center gap-2">
-                                                             <span className="font-mono bg-gray-50 dark:bg-gray-900/50 text-gray-500 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
+                                                             <span className="font-mono bg-gray-50 dark:bg-gray-900/50 text-gray-500 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-[11px]">
                                                                 {item.batchId}
                                                              </span>
                                                              {item.barcodes && item.barcodes.length > 0 && (
@@ -21373,7 +21656,7 @@ LXAD-1234567890`}
                                                     </tr>
                                                     {expandedRekapId === item.id && item.barcodes && (
                                                        <tr className="bg-indigo-50/50 dark:bg-indigo-900/10">
-                                                          <td colSpan={showAdminRekapActions ? 5 : 4} className="p-4 border-t border-indigo-100 dark:border-indigo-800/30">
+                                                          <td colSpan={showAdminRekapActions ? 8 : 7} className="p-4 border-t border-indigo-100 dark:border-indigo-800/30">
                                                              <div className="flex flex-col gap-2 max-w-xl">
                                                                 <div className="flex items-center justify-between">
                                                                    <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
@@ -21413,7 +21696,7 @@ LXAD-1234567890`}
                                               ))}
                                               {currentStaffData.length === 0 && (
                                                  <tr>
-                                                    <td colSpan={showAdminRekapActions ? 5 : 4} className="p-10 text-center text-gray-400">
+                                                    <td colSpan={showAdminRekapActions ? 8 : 7} className="p-10 text-center text-gray-400">
                                                        <div className="flex flex-col items-center gap-2">
                                                           <Database size={40} className="opacity-20" />
                                                           <span>Tidak ada rekap print untuk {activeStaffTab} pada filter ini.</span>
@@ -21424,10 +21707,10 @@ LXAD-1234567890`}
                                            </tbody>
                                         </table>
                                      )}
-                                 </div>
-                                 </>
-                                 );
-                                 })()}
+                                  </div>
+                                  </>
+                                  );
+                                  })()}
                               </div>
                            ) : activeBatchTab === 'AUDIT_KOMPARASI' ? (
                               <div className="w-full flex flex-col bg-gray-50 dark:bg-gray-900/10 p-4 pb-28">
@@ -22265,6 +22548,9 @@ LXAD-1234567890`}
                                           onClick={async () => {
                                              fetchBatchData();
                                              setRefreshSummaryTrigger(prev => prev + 1);
+                                             if (activeBatchTab === 'REKAP_ADMIN') {
+                                                fetchAdminImports();
+                                             }
                                              if (activeBatchTab === 'SUMMARY') {
                                                 const visibleBatches = batchSummaryData.filter(batch => { if (showFsSyncDevMode || showSecretMenu) return true;
                                                    const progress = batchProgressMap[batch.id];
@@ -23276,7 +23562,7 @@ LXAD-1234567890`}
                                  
                                   {(() => {
                                      const showAdminRekapActions = true;
-                                     const currentStaffData = adminImports.filter(item => {
+                                     const filteredStaffData = adminImports.filter(item => {
                                         if (activeStaffTab !== 'SEMUA' && item.staffName !== activeStaffTab) return false;
                                         if (batchSearchMode === 'MASS' && batchMassSearchApplied.length > 0) {
                                            return item.barcodes?.some(b => batchMassSearchApplied.includes((b || '').toString().trim().toUpperCase()));
@@ -23287,17 +23573,97 @@ LXAD-1234567890`}
                                         }
                                         return true;
                                      });
+
+                                     const totalStaffCount = filteredStaffData.length;
+                                     const incompleteStaffCount = filteredStaffData.filter(item => !item.isSuccess).length;
+                                     const successStaffCount = filteredStaffData.filter(item => item.isSuccess).length;
+
+                                     const statusFilteredData = filteredStaffData.filter(item => {
+                                        if (rekapStatusFilter === 'INCOMPLETE') return !item.isSuccess;
+                                        if (rekapStatusFilter === 'SUCCESS') return !!item.isSuccess;
+                                        return true;
+                                     });
+
+                                     const currentStaffData = [...statusFilteredData].sort((a, b) => {
+                                        // Tier 1: Incomplete (!isSuccess) always on top of complete (isSuccess)
+                                        const aSuccess = !!a.isSuccess;
+                                        const bSuccess = !!b.isSuccess;
+                                        if (!aSuccess && bSuccess) return -1;
+                                        if (aSuccess && !bSuccess) return 1;
+
+                                        // Tier 2: Within each group, sort by timestamp
+                                        const timeA = new Date(a.timestamp).getTime();
+                                        const timeB = new Date(b.timestamp).getTime();
+                                        return rekapTimeSortOrder === 'ASC' ? timeA - timeB : timeB - timeA;
+                                     });
+
                                      const isAllSelected = currentStaffData.length > 0 && currentStaffData.every(item => selectedRekapIds.includes(item.id));
 
                                      return (
                                         <>
-                                  <div className="mb-3 flex justify-between items-center bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                                     <div className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300">
-                                        Total Resi <span className="text-indigo-600 dark:text-indigo-400">{activeStaffTab}</span>: 
-                                        <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded text-lg">
-                                           {currentStaffData.reduce((sum, item) => sum + (item.jumlah || 0), 0).toLocaleString()}
-                                        </span>
+                                  <div className="mb-3 flex flex-wrap gap-2 justify-between items-center bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                                     <div className="flex flex-wrap items-center gap-3">
+                                        <div className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300">
+                                           Total Resi <span className="text-indigo-600 dark:text-indigo-400">{activeStaffTab}</span>: 
+                                           <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded text-lg font-black">
+                                              {filteredStaffData.reduce((sum, item) => sum + (item.jumlah || 0), 0).toLocaleString()}
+                                           </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold">
+                                           <button
+                                              type="button"
+                                              onClick={() => setRekapStatusFilter('ALL')}
+                                              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                 rekapStatusFilter === 'ALL'
+                                                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm font-black'
+                                                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                              }`}
+                                           >
+                                              <span>Semua</span>
+                                              <span className="px-1.5 py-0.2 rounded-full bg-gray-200 dark:bg-gray-600 text-[10px]">
+                                                 {totalStaffCount}
+                                              </span>
+                                           </button>
+                                           <button
+                                              type="button"
+                                              onClick={() => setRekapStatusFilter('INCOMPLETE')}
+                                              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                 rekapStatusFilter === 'INCOMPLETE'
+                                                    ? 'bg-rose-500 text-white shadow-sm font-black'
+                                                    : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
+                                              }`}
+                                              title="Tampilkan hanya batch yang belum di-scan Leader atau Picker"
+                                           >
+                                              <span className="w-2 h-2 rounded-full bg-rose-400 dark:bg-rose-300 animate-pulse"></span>
+                                              <span>Perlu Follow-up</span>
+                                              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                                                 rekapStatusFilter === 'INCOMPLETE' ? 'bg-rose-700 text-white' : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-extrabold'
+                                              }`}>
+                                                 {incompleteStaffCount}
+                                              </span>
+                                           </button>
+                                           <button
+                                              type="button"
+                                              onClick={() => setRekapStatusFilter('SUCCESS')}
+                                              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                 rekapStatusFilter === 'SUCCESS'
+                                                    ? 'bg-emerald-600 text-white shadow-sm font-black'
+                                                    : 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                                              }`}
+                                              title="Tampilkan hanya batch yang sudah lengkap di-scan Leader & Picker"
+                                           >
+                                              <CheckCircle2 size={13} />
+                                              <span>Sudah Sukses</span>
+                                              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                                                 rekapStatusFilter === 'SUCCESS' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-extrabold'
+                                              }`}>
+                                                 {successStaffCount}
+                                              </span>
+                                           </button>
+                                        </div>
                                      </div>
+
                                      <div className="flex items-center gap-2">
                                         {showAdminRekapActions && selectedRekapIds.length > 0 && (
                                            <button 
@@ -23337,7 +23703,7 @@ LXAD-1234567890`}
                                            <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 text-gray-500 sticky top-0 z-10 shadow-sm">
                                               <tr>
                                                  {showAdminRekapActions && (
-                                                    <th className="p-4 font-bold uppercase tracking-wider text-[10px] w-10 text-center">
+                                                    <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] w-10 text-center">
                                                        <input 
                                                           type="checkbox" 
                                                           checked={isAllSelected}
@@ -23352,18 +23718,38 @@ LXAD-1234567890`}
                                                        />
                                                     </th>
                                                  )}
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">TANGGAL</th>
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">NAMA BATCH</th>
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">JUMLAH</th>
-                                                 <th className="p-4 font-bold uppercase tracking-wider text-[10px]">BATCH MANAJEMEN</th>
+                                                 <th 
+                                                    onClick={() => setRekapTimeSortOrder(prev => prev === 'ASC' ? 'DESC' : 'ASC')}
+                                                    className="p-3.5 font-bold uppercase tracking-wider text-[10px] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none"
+                                                    title={`Urutkan Timestamp: ${rekapTimeSortOrder === 'ASC' ? 'A-Z (Terlama ke Terbaru)' : 'Z-A (Terbaru ke Terlama)'}`}
+                                                 >
+                                                    <div className="flex items-center gap-1">
+                                                       <span>TANGGAL</span>
+                                                       {rekapTimeSortOrder === 'ASC' ? (
+                                                          <ChevronUp size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                                       ) : (
+                                                          <ChevronDown size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                                       )}
+                                                    </div>
+                                                 </th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">NAMA BATCH</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">JUMLAH</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN LEADER</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN PICKER</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">STATUS</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">BATCH MANAJEMEN</th>
                                               </tr>
                                            </thead>
                                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                               {currentStaffData.map(item => (
                                                  <React.Fragment key={item.id}>
-                                                    <tr className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${selectedRekapIds.includes(item.id) ? 'bg-indigo-50/30 dark:bg-indigo-900/10' : ''}`}>
+                                                    <tr className={`transition-colors ${
+                                                       !item.isSuccess
+                                                          ? 'bg-rose-50/60 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/60 dark:hover:bg-rose-900/30'
+                                                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                                                    } ${selectedRekapIds.includes(item.id) ? '!bg-indigo-50/50 dark:!bg-indigo-900/20' : ''}`}>
                                                        {showAdminRekapActions && (
-                                                          <td className="p-4 text-center">
+                                                          <td className="p-3.5 text-center">
                                                              <input 
                                                                 type="checkbox" 
                                                                 checked={selectedRekapIds.includes(item.id)}
@@ -23378,10 +23764,15 @@ LXAD-1234567890`}
                                                              />
                                                           </td>
                                                        )}
-                                                       <td className="p-4 text-xs font-medium text-gray-900 dark:text-gray-100">{new Date(item.timestamp).toLocaleString()}</td>
-                                                       <td className="p-4 text-xs font-bold text-gray-600 dark:text-gray-300">
+                                                       <td className="p-3.5 text-xs font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                                                          {new Date(item.timestamp).toLocaleString('id-ID', {
+                                                             day: '2-digit', month: '2-digit', year: 'numeric',
+                                                             hour: '2-digit', minute: '2-digit', second: '2-digit'
+                                                          })}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs font-bold text-gray-700 dark:text-gray-200">
                                                           <div className="flex items-center gap-1.5">
-                                                             <span>{item.excelFilename}</span>
+                                                             <span className="font-semibold">{item.excelFilename}</span>
                                                              {showAdminRekapActions && (
                                                                 <button
                                                                    type="button"
@@ -23401,12 +23792,77 @@ LXAD-1234567890`}
                                                              )}
                                                           </div>
                                                        </td>
-                                                       <td className="p-4 text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                                                       <td className="p-3.5 text-xs font-extrabold text-indigo-600 dark:text-indigo-400 text-center">
                                                           {item.jumlah}
                                                        </td>
-                                                       <td className="p-4 text-xs">
+                                                       <td className="p-3.5 text-xs">
+                                                          {item.isLeaderScanned ? (
+                                                             <div className="flex flex-col gap-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 w-fit">
+                                                                   <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400" />
+                                                                   <span>{item.leaderName || 'LEADER'}</span>
+                                                                </span>
+                                                                {item.leaderAssignees && item.leaderAssignees.length > 0 && (
+                                                                   <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-1">
+                                                                      Assign: <strong className="text-gray-700 dark:text-gray-200">{item.leaderAssignees.join(', ')}</strong>
+                                                                   </span>
+                                                                )}
+                                                             </div>
+                                                          ) : (
+                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 w-fit">
+                                                                <XCircle size={12} className="text-rose-500" />
+                                                                <span>Belum Leader</span>
+                                                             </span>
+                                                          )}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs">
+                                                          {item.isPickerComplete ? (
+                                                             <div className="flex flex-col gap-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 w-fit">
+                                                                   <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400" />
+                                                                   <span>{item.pickerScannedCount}/{item.jumlah} Selesai</span>
+                                                                </span>
+                                                                {item.pickerNames && item.pickerNames.length > 0 && (
+                                                                   <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-1 truncate max-w-[150px]" title={item.pickerNames.join(', ')}>
+                                                                      Picker: <strong className="text-gray-700 dark:text-gray-200">{item.pickerNames.join(', ')}</strong>
+                                                                   </span>
+                                                                )}
+                                                             </div>
+                                                          ) : item.pickerScannedCount && item.pickerScannedCount > 0 ? (
+                                                             <div className="flex flex-col gap-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 w-fit">
+                                                                   <Clock size={12} className="text-amber-500" />
+                                                                   <span>{item.pickerScannedCount}/{item.jumlah} Proses</span>
+                                                                </span>
+                                                                {item.pickerNames && item.pickerNames.length > 0 && (
+                                                                   <span className="text-[10px] text-gray-500 dark:text-gray-400 pl-1 truncate max-w-[150px]" title={item.pickerNames.join(', ')}>
+                                                                      Picker: <strong className="text-gray-700 dark:text-gray-200">{item.pickerNames.join(', ')}</strong>
+                                                                   </span>
+                                                                )}
+                                                             </div>
+                                                          ) : (
+                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 w-fit">
+                                                                <XCircle size={12} className="text-rose-500" />
+                                                                <span>0/{item.jumlah} Belum Scan</span>
+                                                             </span>
+                                                          )}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs text-center">
+                                                          {item.isSuccess ? (
+                                                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-black text-[11px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-sm whitespace-nowrap">
+                                                                <CheckCircle2 size={13} />
+                                                                <span>SUKSES</span>
+                                                             </span>
+                                                          ) : (
+                                                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-black text-[11px] bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 shadow-sm animate-pulse whitespace-nowrap">
+                                                                <AlertCircle size={13} />
+                                                                <span>FOLLOW-UP</span>
+                                                             </span>
+                                                          )}
+                                                       </td>
+                                                       <td className="p-3.5 text-xs">
                                                           <div className="flex items-center gap-2">
-                                                             <span className="font-mono bg-gray-50 dark:bg-gray-900/50 text-gray-500 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
+                                                             <span className="font-mono bg-gray-50 dark:bg-gray-900/50 text-gray-500 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-[11px]">
                                                                 {item.batchId}
                                                              </span>
                                                              {item.barcodes && item.barcodes.length > 0 && (
@@ -23438,7 +23894,7 @@ LXAD-1234567890`}
                                                     </tr>
                                                     {expandedRekapId === item.id && item.barcodes && (
                                                        <tr className="bg-indigo-50/50 dark:bg-indigo-900/10">
-                                                          <td colSpan={showAdminRekapActions ? 5 : 4} className="p-4 border-t border-indigo-100 dark:border-indigo-800/30">
+                                                          <td colSpan={showAdminRekapActions ? 8 : 7} className="p-4 border-t border-indigo-100 dark:border-indigo-800/30">
                                                              <div className="flex flex-col gap-2 max-w-xl">
                                                                 <div className="flex items-center justify-between">
                                                                    <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
@@ -23478,7 +23934,7 @@ LXAD-1234567890`}
                                               ))}
                                               {currentStaffData.length === 0 && (
                                                  <tr>
-                                                    <td colSpan={showAdminRekapActions ? 5 : 4} className="p-10 text-center text-gray-400">
+                                                    <td colSpan={showAdminRekapActions ? 8 : 7} className="p-10 text-center text-gray-400">
                                                        <div className="flex flex-col items-center gap-2">
                                                           <Database size={40} className="opacity-20" />
                                                           <span>Tidak ada rekap print untuk {activeStaffTab} pada filter ini.</span>
@@ -23489,10 +23945,10 @@ LXAD-1234567890`}
                                            </tbody>
                                         </table>
                                      )}
-                                 </div>
-                                 </>
-                                 );
-                                 })()}
+                                  </div>
+                                  </>
+                                  );
+                                  })()}
                               </div>
                            ) : activeBatchTab === 'AUDIT_KOMPARASI' ? (
                               <div className="w-full flex flex-col bg-gray-50 dark:bg-gray-900/10 p-4 pb-28">
