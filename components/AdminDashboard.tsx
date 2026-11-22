@@ -3280,10 +3280,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       try {
          const savedTab = localStorage.getItem('kalindo_admin_batch_tab') as any;
          if (savedTab && ['ITEMS', 'SUMMARY', 'REKAP_ADMIN', 'AUDIT_KOMPARASI', 'MASS_SEARCH'].includes(savedTab)) {
+            if (savedTab === 'ITEMS') return 'REKAP_ADMIN';
             return savedTab;
          }
       } catch (e) {}
-      return 'ITEMS';
+      return 'REKAP_ADMIN';
    });
 
    // --- MASS SEARCH STATE ---
@@ -13540,8 +13541,11 @@ if (filterPackingShift !== 'ALL') {
    // Sidebar Helper
    const handleSidebarSelect = useCallback((view: AdminView) => {
       setActiveView(view);
+      if (view === 'BATCH_DATA_3' && currentAdmin?.username !== 'Tamu') {
+         setActiveBatchTab('REKAP_ADMIN');
+      }
       setIsMobileMenuOpen(false);
-   }, []);
+   }, [currentAdmin?.username]);
 
    return (
       <div className="h-full w-full bg-gray-50 dark:bg-gray-900 flex overflow-hidden text-gray-900 dark:text-gray-100 relative transition-colors duration-500 ease-in-out">
