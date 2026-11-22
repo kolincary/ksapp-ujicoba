@@ -7503,7 +7503,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                const { data, error } = await supabase
                   .from('scanned_items')
                   .select('barcode, employee_name')
-                  .in('role', ['PICKER', 'PICKER_2'])
+                  .in('role', ['PICKER', 'PICKER_2', 'OJOL', 'Ojol'])
                   .gte('timestamp', fullDayStartMs)
                   .lte('timestamp', fullDayEndMs)
                   .range(offset, offset + step - 1);
@@ -20381,7 +20381,10 @@ if (filterPackingShift !== 'ALL') {
                                        disabled={isAuditBusy}
                                        className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors flex items-center gap-2 ${activeBatchTab === 'REKAP_ADMIN' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'} ${isAuditBusy ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                     >
-                                       Rekap Admin Print
+                                       <span>Rekap Admin Print</span>
+                                       <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-full shadow-sm animate-pulse flex items-center">
+                                          NEW
+                                       </span>
                                     </button>
                                     <button 
                                        onClick={() => setActiveBatchTab('AUDIT_KOMPARASI')} 
@@ -22615,7 +22618,10 @@ LXAD-1234567890`}
                                        disabled={isAuditBusy}
                                        className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors flex items-center gap-2 ${activeBatchTab === 'REKAP_ADMIN' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'} ${isAuditBusy ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                     >
-                                       Rekap Admin Print
+                                       <span>Rekap Admin Print</span>
+                                       <span className="px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-full shadow-sm animate-pulse flex items-center">
+                                          NEW
+                                       </span>
                                     </button>
                                     </>)}
                                     <button 
