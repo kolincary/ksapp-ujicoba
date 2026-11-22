@@ -7652,7 +7652,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
          });
 
-         const SPECIAL_KEYWORDS = ['OJOL', 'BUNDLING', 'WLCL', 'CRBD', 'TRBD', 'SLC', 'RSB', 'BLIBLI'];
+         const SPECIAL_KEYWORDS = ['OJOL', 'BUNDLING', 'WLCL', 'WLS', 'WSL', 'CRBD', 'TRBD', 'SLC', 'RSB', 'BLIBLI'];
          const GENERAL_SPECIAL_PICKERS = ['SHELDA', 'RACHEL', 'REVAN'];
          const RSB_SPECIAL_PICKERS = ['SHELDA', 'RACHEL', 'REVAN', 'MUKMIN', 'WAHID SURYONO', 'ZAKI TRISNAUFAL', 'ASEP'];
 
@@ -21524,7 +21524,7 @@ LXAD-1234567890`}
                                                  </th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">NAMA BATCH</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">JUMLAH</th>
-                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN LEADER</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN LEADER/OJOL/RSB</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN PICKER</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">STATUS</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">BATCH MANAJEMEN</th>
@@ -23765,7 +23765,7 @@ LXAD-1234567890`}
                                                  </th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">NAMA BATCH</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">JUMLAH</th>
-                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN LEADER</th>
+                                                 <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN LEADER/OJOL/RSB</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">SCAN PICKER</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px] text-center">STATUS</th>
                                                  <th className="p-3.5 font-bold uppercase tracking-wider text-[10px]">BATCH MANAJEMEN</th>
