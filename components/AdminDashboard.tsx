@@ -3294,6 +3294,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    const [selectedMassSearchIds, setSelectedMassSearchIds] = useState<string[]>([]);
    const [massSearchRoles, setMassSearchRoles] = useState<string[]>(['ALL']);
 
+   const parsedInputBarcodesCount = useMemo(() => {
+      if (!massSearchInputText.trim()) return 0;
+      const lines = massSearchInputText.split(/[\n\t\r,;]+/);
+      const seen = new Set(lines.map(l => l.trim()).filter(Boolean));
+      return seen.size;
+   }, [massSearchInputText]);
+
    const toggleMassSearchRole = (roleKey: string) => {
       if (roleKey === 'ALL') {
          setMassSearchRoles(['ALL']);
@@ -12050,6 +12057,39 @@ if (filterPackingShift !== 'ALL') {
       }
    };
 
+   const handleOpenMassSearchResultsBatchModal = useCallback(() => {
+      if (selectedMassSearchIds.length === 0) return;
+      const itemsToCopy = massSearchResults.filter(item => selectedMassSearchIds.includes(item.id));
+      const seenBarcodes = new Set<string>();
+      const uniqueBarcodes: string[] = [];
+      for (const item of itemsToCopy) {
+         const cleanB = (item.barcode || '').trim();
+         if (cleanB && !seenBarcodes.has(cleanB)) {
+            seenBarcodes.add(cleanB);
+            uniqueBarcodes.push(cleanB);
+         }
+      }
+      openAuditBatchCopyModal('Pencarian Massal (Hasil Terpilih)', uniqueBarcodes);
+   }, [massSearchResults, selectedMassSearchIds, openAuditBatchCopyModal]);
+
+   const handleOpenMassSearchInputBatchModal = useCallback(() => {
+      const lines = massSearchInputText.split(/[\n\t\r,;]+/);
+      const seenBarcodes = new Set<string>();
+      const uniqueBarcodes: string[] = [];
+      for (const l of lines) {
+         const cleanB = (l || '').trim();
+         if (cleanB && !seenBarcodes.has(cleanB)) {
+            seenBarcodes.add(cleanB);
+            uniqueBarcodes.push(cleanB);
+         }
+      }
+      if (uniqueBarcodes.length === 0) {
+         alert("Tidak ada barcode valid di dalam input.");
+         return;
+      }
+      openAuditBatchCopyModal('Pencarian Massal (Input Barcode)', uniqueBarcodes);
+   }, [massSearchInputText, openAuditBatchCopyModal]);
+
    // Import TikTok Excel: reads Col A (Platform unique order ID) & Col AD (Order created time)
    const processBatchGineeFiles = async (files: File[]) => {
       if (!filterInvoiceDate) {
@@ -20465,24 +20505,51 @@ INV-789012`}
                                                  className="w-full h-32 p-4 bg-gray-50 dark:bg-gray-900/50 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-mono text-sm resize-none"
                                               />
                                            </div>
-                                           <div className="flex justify-between items-center">
-                                              <button
-                                                 onClick={handleMassSearch}
-                                                 disabled={isMassSearching || !massSearchInputText.trim()}
-                                                 className="flex items-center gap-2 px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg transition-all"
-                                              >
-                                                 {isMassSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                                                 Cari Data
-                                              </button>
+                                           <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                 <button
+                                                    onClick={handleMassSearch}
+                                                    disabled={isMassSearching || !massSearchInputText.trim()}
+                                                    className="flex items-center gap-2 px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg transition-all cursor-pointer"
+                                                 >
+                                                    {isMassSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                                                    Cari Data
+                                                 </button>
+                                                 {parsedInputBarcodesCount > 0 && (
+                                                    <button
+                                                       type="button"
+                                                       onClick={handleOpenMassSearchInputBatchModal}
+                                                       className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer"
+                                                       title="Bagi dan salin daftar barcode yang di-paste di textarea per 500 data"
+                                                    >
+                                                       <Boxes size={15} />
+                                                       Salin Input per Batch ({parsedInputBarcodesCount})
+                                                    </button>
+                                                 )}
+                                              </div>
                                               
-                                              <button
-                                                 onClick={handleCopyMassSearchResults}
-                                                 disabled={selectedMassSearchIds.length === 0}
-                                                 className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg transition-all"
-                                              >
-                                                 <Copy size={18} />
-                                                 Salin Barcode {selectedMassSearchIds.length > 0 && `(${selectedMassSearchIds.length})`}
-                                              </button>
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                 <button
+                                                    type="button"
+                                                    onClick={handleOpenMassSearchResultsBatchModal}
+                                                    disabled={selectedMassSearchIds.length === 0}
+                                                    className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg transition-all cursor-pointer"
+                                                    title="Bagi dan salin barcode hasil pencarian terpilih per 500 data"
+                                                 >
+                                                    <Boxes size={18} />
+                                                    Salin per Batch (500)
+                                                 </button>
+
+                                                 <button
+                                                    onClick={handleCopyMassSearchResults}
+                                                    disabled={selectedMassSearchIds.length === 0}
+                                                    className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg transition-all cursor-pointer"
+                                                    title="Salin seluruh barcode hasil pencarian terpilih sekaligus"
+                                                 >
+                                                    <Copy size={18} />
+                                                    Salin Semua {selectedMassSearchIds.length > 0 && `(${selectedMassSearchIds.length})`}
+                                                 </button>
+                                              </div>
                                            </div>
                                         </div>
                                      </div>
@@ -22706,24 +22773,51 @@ INV-789012`}
                                                  className="w-full h-32 p-4 bg-gray-50 dark:bg-gray-900/50 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all font-mono text-sm resize-none"
                                               />
                                            </div>
-                                           <div className="flex justify-between items-center">
-                                              <button
-                                                 onClick={handleMassSearch}
-                                                 disabled={isMassSearching || !massSearchInputText.trim()}
-                                                 className="flex items-center gap-2 px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg transition-all"
-                                              >
-                                                 {isMassSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                                                 Cari Data
-                                              </button>
+                                           <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                 <button
+                                                    onClick={handleMassSearch}
+                                                    disabled={isMassSearching || !massSearchInputText.trim()}
+                                                    className="flex items-center gap-2 px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg transition-all cursor-pointer"
+                                                 >
+                                                    {isMassSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                                                    Cari Data
+                                                 </button>
+                                                 {parsedInputBarcodesCount > 0 && (
+                                                    <button
+                                                       type="button"
+                                                       onClick={handleOpenMassSearchInputBatchModal}
+                                                       className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer"
+                                                       title="Bagi dan salin daftar barcode yang di-paste di textarea per 500 data"
+                                                    >
+                                                       <Boxes size={15} />
+                                                       Salin Input per Batch ({parsedInputBarcodesCount})
+                                                    </button>
+                                                 )}
+                                              </div>
                                               
-                                              <button
-                                                 onClick={handleCopyMassSearchResults}
-                                                 disabled={selectedMassSearchIds.length === 0}
-                                                 className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg transition-all"
-                                              >
-                                                 <Copy size={18} />
-                                                 Salin Barcode {selectedMassSearchIds.length > 0 && `(${selectedMassSearchIds.length})`}
-                                              </button>
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                 <button
+                                                    type="button"
+                                                    onClick={handleOpenMassSearchResultsBatchModal}
+                                                    disabled={selectedMassSearchIds.length === 0}
+                                                    className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg transition-all cursor-pointer"
+                                                    title="Bagi dan salin barcode hasil pencarian terpilih per 500 data"
+                                                 >
+                                                    <Boxes size={18} />
+                                                    Salin per Batch (500)
+                                                 </button>
+
+                                                 <button
+                                                    onClick={handleCopyMassSearchResults}
+                                                    disabled={selectedMassSearchIds.length === 0}
+                                                    className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg transition-all cursor-pointer"
+                                                    title="Salin seluruh barcode hasil pencarian terpilih sekaligus"
+                                                 >
+                                                    <Copy size={18} />
+                                                    Salin Semua {selectedMassSearchIds.length > 0 && `(${selectedMassSearchIds.length})`}
+                                                 </button>
+                                              </div>
                                            </div>
                                         </div>
                                      </div>
