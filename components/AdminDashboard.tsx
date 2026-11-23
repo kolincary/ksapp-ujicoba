@@ -7653,7 +7653,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
          });
 
-         const SPECIAL_KEYWORDS = ['OJOL', 'BUNDLING', 'WLCL', 'WLS', 'WSL', 'CRBD', 'TRBD', 'SLC', 'RSB', 'BLIBLI'];
+         const SPECIAL_KEYWORDS = ['OJOL', 'BUNDLING', 'WLCL', 'WLS', 'WSL', 'CRBD', 'TRBD', 'SLC', 'RSB', 'BLIBLI', 'GIFT'];
          const GENERAL_SPECIAL_PICKERS = ['SHELDA', 'RACHEL', 'REVAN'];
          const RSB_SPECIAL_PICKERS = ['SHELDA', 'RACHEL', 'REVAN', 'MUKMIN', 'WAHID SURYONO', 'ZAKI TRISNAUFAL', 'ASEP'];
 
@@ -7682,7 +7682,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
             const pickerNames = Array.from(pickerEmpSet);
 
-            // Special Batch Rule: Jika nama batch mengandung OJOL, BUNDLING, WLCL, CRBD, TRBD, SLC, RSB, BLIBLI
+            // Special Batch Rule: Jika nama batch mengandung OJOL, BUNDLING, WLCL, WLS, WSL, CRBD, TRBD, SLC, RSB, BLIBLI, GIFT
             // dan di-scan oleh staff khusus di role picker, maka otomatis mengisi kolom scan leader
             const upperBatchName = (item.excelFilename || item.batchId || '').toUpperCase();
             const isSpecialBatch = SPECIAL_KEYWORDS.some(kw => upperBatchName.includes(kw));
