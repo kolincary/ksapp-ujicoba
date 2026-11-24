@@ -7689,8 +7689,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }
             const pickerNames = Array.from(pickerEmpSet);
 
+            const totalResi = item.jumlah ?? (item.barcodes ? item.barcodes.length : 0);
+            const isPickerComplete = totalResi > 0 && pickerScannedCount >= totalResi;
+
             // Special Batch Rule: Jika nama batch mengandung OJOL, BUNDLING, WLCL, WLS, WSL, CRBD, TRBD, SLC, RSB, BLIBLI, GIFT
-            // dan di-scan oleh staff khusus di role picker, maka otomatis mengisi kolom scan leader
+            // dan di-scan oleh staff khusus di role picker/ojol, maka otomatis mengisi kolom scan leader/ojol/rsb.
+            // Atau jika belum di-scan leader tetapi scan picker SUDAH SELESAI (misal petugas khusus sudah pulang & dihandover ke picker lain),
+            // maka otomatis juga mengisi kolom scan leader/ojol/rsb dari nama picker yang menyelesaikan batch tsb.
             const upperBatchName = (item.excelFilename || item.batchId || '').toUpperCase();
             const isSpecialBatch = SPECIAL_KEYWORDS.some(kw => upperBatchName.includes(kw));
             if (!isLeaderScanned && isSpecialBatch) {
@@ -7705,11 +7710,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                if (qualifyingStaff.length > 0) {
                   isLeaderScanned = true;
                   leaderName = qualifyingStaff.join(', ');
+               } else if (isPickerComplete && pickerNames.length > 0) {
+                  isLeaderScanned = true;
+                  leaderName = pickerNames.join(', ');
                }
             }
 
-            const totalResi = item.jumlah ?? (item.barcodes ? item.barcodes.length : 0);
-            const isPickerComplete = totalResi > 0 && pickerScannedCount >= totalResi;
             const isSuccess = isLeaderScanned && isPickerComplete;
 
             return {
